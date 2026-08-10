@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.3, decision 3
+- Amendments: access control — each block export carries an explicit NQN
+  allowlist; `allow_any_host` is never enabled.
 
 ## Context
 

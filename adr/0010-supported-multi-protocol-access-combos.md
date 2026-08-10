@@ -7,6 +7,9 @@
   ADR-0003, ADR-0009
 - Amendments: app workloads added to the matrix — a dataset is an app volume or a
   network share, never both.
+- Amendments: access-control model for SMB+NFS datasets is per-path grants with
+  UID alignment — NFS grants gate hosts, SMB grants gate users, and UIDs stay
+  consistent via the identity controller (resolve-control-plane-gaps D8).
 
 ## Context
 
@@ -40,3 +43,9 @@ The supported exposure matrix must be explicit rather than accidental.
   exclusive per dataset.
 - The API/UI present the supported/unsupported matrix so users are not surprised
   by a rejected combination.
+- **SMB+NFS access control (per-path)**: NFS `sharenfs` controls which hosts may
+  access; SMB `sharesmb`/passdb controls which users may access. The two
+  mechanisms gate different access paths and there is no cross-protocol
+  intersection — file ownership and UIDs are kept coherent by the identity
+  controller (ADR-0005), so a client's view of ownership matches regardless of
+  path. Documented for the `file-shares` design.

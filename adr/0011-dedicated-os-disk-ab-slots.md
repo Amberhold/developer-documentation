@@ -4,6 +4,11 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, §3.7; ADR-0001, ADR-0007
+- Amendments: the OS disk carries a persistent config partition holding the spec
+  store (ADR-0013); OS-disk sizing is an install-time check reserving free headroom
+  ≥ N GB for spec-store versioning/snapshots, N defined by the installer design.
+- Amendments: the OS-disk config partition also carries encryption keyfiles
+  (ADR-0015); the installer sizing check accounts for them (resolve-control-plane-gaps D6).
 
 ## Context
 
@@ -36,3 +41,11 @@ config, app images, user data — is configurable per ADR-0007.
   fallback (ADR-0001) operate entirely on this disk and never touch pools.
 - Data pools can be created, imported, or rebuilt independently of the OS disk —
   including the reinstall recovery path (feature 12 `zpool import`).
+- The spec store lives on a persistent partition of this disk (ADR-0013), so boot
+  never depends on pools; its versioning/snapshot headroom drives the disk size
+  check at install.
+- The OS disk is a single point of failure: it now holds slots, the bootloader,
+  the spec store (ADR-0013), and encryption keyfiles (ADR-0015). Data pools are
+  unaffected by OS-disk loss, but config and keys are recovered via reinstall +
+  `zpool import` only. Redundancy for the OS disk is accepted as out of scope
+  for v1.

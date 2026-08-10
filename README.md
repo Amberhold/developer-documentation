@@ -1,15 +1,25 @@
 # NAS Documentation
 
 - [Architecture](architecture/01-os-feature-map.md) — target feature map and architecture decisions (discovery-phase capture).
-- [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md) — read-only squashfs root with A/B boot (amended: `core` baked into the image; no host-file writes under `/`)
-- [ADR-0002](adr/0002-declarative-desired-state-api-reconciler-core.md) — declarative desired-state API with reconciler core (amended: composite rollback)
+- [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md) — read-only squashfs root with A/B boot (amended: `core` baked into the image; no host-file writes under `/`; RO-root writable-config convention — generated files on `config`, `/etc` symlinks)
+- [ADR-0002](adr/0002-declarative-desired-state-api-reconciler-core.md) — declarative desired-state API with reconciler core (amended: composite rollback; imperative action endpoints)
 - [ADR-0003](adr/0003-nvmet-kernel-nvme-of-target-serve-only.md) — nvmet kernel NVMe-oF target (serve-only)
-- [ADR-0004](adr/0004-zfs-backed-container-volumes-full-docker-compose.md) — ZFS-backed container volumes with full docker-compose (amended: dataset-per-volume default)
-- [ADR-0005](adr/0005-identity-model-separate-nas-db.md) — identity model (separate NAS DB with optional system/SMB link) (amended: NFS model — host-based access, UID alignment to the NAS user)
+- [ADR-0004](adr/0004-zfs-backed-container-volumes-full-docker-compose.md) — ZFS-backed container volumes with full docker-compose (amended: dataset-per-volume default; dedicated app UID per stack)
+- [ADR-0005](adr/0005-identity-model-separate-nas-db.md) — identity model (separate NAS DB with optional system/SMB link) (amended: NFS model — host-based access, UID alignment to the NAS user; app UID allocation)
 - [ADR-0006](adr/0006-updates-as-a-product-feature.md) — updates as a product feature (amended: repo-channel-only delivery)
 - [ADR-0007](adr/0007-configurable-storage-layout-assigned-at-install.md) — configurable storage layout assigned at install time
 - [ADR-0008](adr/0008-prometheus-metrics-for-every-subsystem.md) — Prometheus metrics for every subsystem (amended: scrape-only hosting, no embedded server)
 - [ADR-0009](adr/0009-nfs-share-management-via-zfs-sharenfs.md) — NFS share management via ZFS `sharenfs` properties
-- [ADR-0010](adr/0010-supported-multi-protocol-access-combos.md) — supported multi-protocol concurrent access combos (amended: app volumes are XOR with network shares)
-- [ADR-0011](adr/0011-dedicated-os-disk-ab-slots.md) — dedicated OS disk for the A/B squashfs slots
+- [ADR-0010](adr/0010-supported-multi-protocol-access-combos.md) — supported multi-protocol concurrent access combos (amended: app volumes are XOR with network shares; per-path grants with UID alignment)
+- [ADR-0011](adr/0011-dedicated-os-disk-ab-slots.md) — dedicated OS disk for the A/B squashfs slots (amended: carries spec store + encryption keyfiles; single point of failure accepted)
 - [ADR-0012](adr/0012-web-ui-static-server-in-image.md) — Web-UI as a separate static server baked into the image
+- [ADR-0013](adr/0013-spec-store-on-os-disk-partition.md) — spec store on a persistent OS-disk partition (boot reads spec before pool import; versioned with forward migration)
+- [ADR-0014](adr/0014-network-planes-configurable-at-install.md) — network planes configurable at install (amended: per-interface IP assigned at install)
+- [ADR-0015](adr/0015-encryption-keyfile-headless-unlock.md) — encryption keyfile on the OS-disk partition, headless unlock
+- [ADR-0016](adr/0016-logging-audit-via-journald.md) — logging + audit via journald, forwarded to the `config` dataset (amended: config snapshotted on shared `Schedule`)
+- [ADR-0017](adr/0017-per-controller-reconcile-loops.md) — per-controller reconcile loops over a shared event source (amended: no hard ordering, idempotent retries)
+- [ADR-0018](adr/0018-rbac-fixed-roles-capability-map.md) — RBAC fixed roles with a capability map
+- [ADR-0019](adr/0019-feature-map-aligned-api-resource-model.md) — feature-map-aligned API resource model (amended: `Schedule` resource added)
+- [ADR-0020](adr/0020-authentication-session-token-argon2.md) — authentication: sessions for the UI, API tokens for CLI/automation, Argon2id
+- [ADR-0021](adr/0021-disk-health-smart-scrub-schedule.md) — disk health: core polls SMART via smartctl, metrics + status
+- [ADR-0022](adr/0022-shared-schedule-resource.md) — shared `Schedule` resource for snapshots and scrubs

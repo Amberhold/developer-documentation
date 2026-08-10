@@ -40,19 +40,19 @@ architecture (a declarative reconciler) that subsequent changes build on.
 |---|---------|---------------|
 | 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root |
 | 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API |
-| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention), zvols (data-only), native encryption |
+| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
 | 5 | App workloads | Full docker-compose on containerd; ZFS-backed volumes; images on a configured dataset |
-| 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client |
-| 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users |
+| 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020) |
+| 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020) |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | Prometheus metrics for every subsystem |
-| 10 | Networking | Management network: management IP (DHCP or static), hostname, NTP; where API/UI/shares bind |
+| 10 | Networking | Management network: management IP (DHCP or static), hostname, NTP; where API/UI/shares bind. Interface roles (mgmt vs data plane) configurable at install (ADR-0014) |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (decision 7); import existing pools with role reassignment; admin bootstrap |
-| 13 | Logging + audit | System logs and audit log of admin actions; retention |
-| 14 | Disk health | Scrub schedule; SMART health monitoring |
+| 12 | Installer | First-boot: assign storage layout roles (decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for spec store + keyfiles (ADR-0011) |
+| 13 | Logging + audit | System logs via journald, forwarded to the `config` dataset; audit trail of admin actions (tagged journald entries), retention (ADR-0016) |
+| 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
 
 ### Deferred areas (future paths, out of v1 scope)
 
@@ -70,6 +70,8 @@ silent gaps:
   via API/UI and Prometheus metrics (feature 9).
 - **AD/LDAP join** — no directory-service integration in v1; identity is the
   NAS-local user DB (ADR-0005).
+- **User/group quotas** — dataset quotas are in v1 (feature 2); `userquota`/
+  `groupquota` are deferred with no user-identity pressure.
 
 ## 3. Architecture decisions
 
@@ -94,7 +96,9 @@ silent gaps:
   and CLI become thin clients; drift detection falls out of the model and rollback is
   composite (spec-store revert + ZFS snapshot rollback, ADR-0002).
 - **Implications**: core daemon is a reconciler; spec store is the source of truth;
-  RBAC is enforced at API admission, not in the UI.
+  RBAC is enforced at API admission, not in the UI. Imperative operations (disk
+  replace, scrub now, rollback triggers) are action endpoints that do not mutate
+  spec (ADR-0002 amendment).
 
 ### 3.3 NVMe-oF: nvmet kernel target, serve-only
 - **Decision**: kernel `nvmet` target, controlled by the daemon via configfs; we serve
@@ -111,7 +115,9 @@ silent gaps:
 - **Alternatives considered**: reduced/own schema (fragments ecosystem compatibility);
   plain-directory volumes (no snapshots/replication).
 - **Implications**: images and compose state live on a configured app dataset; app
-  data participates in the snapshot/replication story.
+  data participates in the snapshot/replication story. Each stack runs as a
+  dedicated identity-controller UID that owns its dataset (ADR-0004/0005
+  amendment).
 
 ### 3.5 Identity: separate NAS DB with optional link
 - **Decision**: RBAC identity is a NAS-local user DB (API/UI/CLI). A separate,
@@ -120,7 +126,8 @@ silent gaps:
 - **Alternatives considered**: pure system accounts (couples RBAC to host accounts);
   fully separate (share auth disconnected from users).
 - **Implications**: "create a share user" ⇒ NAS user + optional system UID + optional
-  samba passdb entry.
+  samba passdb entry. UIDs are also allocated per app stack (ADR-0004/0005
+  amendment).
 
 ### 3.6 Updates: a product feature, not just image mechanics
 - **Decision**: A/B is the mechanism; system updates (trigger, progress, reboot,
@@ -129,10 +136,13 @@ silent gaps:
   progress reporting; boot-fail and manual rollback paths.
 
 ### 3.7 Storage layout: configurable at install
-- **Decision**: the roles of datasets (system/config, app/images, data) are assigned
-  at install time, not fixed.
+- **Decision**: the roles of datasets (`config`, app/images, data) are assigned at
+  install time, not fixed. The spec store is excluded by design — it lives on the
+  OS disk (ADR-0013).
 - **Implications**: an install-time assignment step; everything else points at the
-  assigned datasets.
+  assigned datasets. The `config` role holds forwarded logs and daemon config
+  fragments; encryption keyfiles live on the OS disk, not on a pool (ADR-0015);
+  the spec store is excluded by design — it lives on the OS disk (ADR-0013).
 
 ### 3.8 Metrics: every subsystem observable
 - **Decision**: Prometheus metrics for pools, shares, apps, API, updates.
@@ -147,24 +157,25 @@ silent gaps:
 │  (static server │  └─────┬─────┘
 │   in image)     │        │
 └────────┬────────┘        │
-         └───────┬─────────┘
-                 │ HTTP + RBAC admission
-          ┌──────▼───────────────┐
-          │       API            │   contracts/ (OpenAPI)
-          └──────┬───────────────┘
-                 │ desired-state CRUD (declarative)
-          ┌──────▼───────────────────────────────┐
-          │  core daemon                          │
-          │   spec store (source of truth)        │   persisted on a
-          │   └─ reconciler loop (wanted≠actual)  │   configured dataset
-          │        ├─ ZFS controller      │ zpool/zfs (go-zfs)
-          │        ├─ SMB controller      │ samba + smbpasswd
-          │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009)
-          │        ├─ NVMe-oF controller  │ configfs (nvmet)
-          │        ├─ Apps controller     │ nerdctl compose → containerd
-          │        ├─ Identity controller │ user DB ↔ UID ↔ samba
-          │        └─ Update controller   │ A/B slot swap + reboot
-          └──────────────────────────────────────┘
+          └───────┬─────────┘
+                  │ HTTP + auth (sessions/tokens) + RBAC admission
+           ┌──────▼───────────────┐
+           │       API            │   contracts/ (OpenAPI)
+           └──────┬───────────────┘
+                  │ desired-state CRUD + action endpoints (declarative + ops)
+            ┌──────▼───────────────────────────────┐
+            │  core daemon                          │
+            │   spec store (source of truth)        │   on the OS disk, not a
+            │   └─ reconciler loop (wanted≠actual)  │   pool (ADR-0013);
+            │        ├─ ZFS controller      │ zpool/zfs (go-zfs)    per-controller
+            │        ├─ SMB controller      │ samba + smbpasswd     loops over a
+            │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009) shared event
+            │        ├─ NVMe-oF controller  │ configfs (nvmet, NQN allowlist) source
+            │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
+            │        ├─ Identity controller │ user DB ↔ UID ↔ samba (app UIDs too)
+            │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
+            │        └─ Update controller   │ A/B slot swap + reboot
+            └──────────────────────────────────────┘
 ```
 
 ## 5. Key flows
@@ -187,23 +198,37 @@ NAS user (API/UI/CLI)
 ### 5.3 Configurable layout
 ```
 installer → assign roles:
-   system dataset   → configs, spec store
-   app dataset      → images, compose state
-   data pools       → shares, zvols (user-chosen)
+   config dataset  → forwarded logs, daemon config fragments (not keys, not spec)
+   app dataset     → images, compose state
+   data pools      → shares, zvols (user-chosen)
+   OS disk         → slots + spec store + encryption keyfiles (ADRs 0013, 0015)
 ```
 
-## 6. Open questions (deferred to the architecture phase)
+## 6. Open questions (resolved in the architecture phase)
 
-These are deliberately not resolved here; they refine the design but do not change
-the feature map or the decisions above. They will be resolved in per-subsystem
-changes as the architecture is detailed.
+These were open in the discovery phase and are now resolved by ADRs 0013–0022.
+They refine the design but do not change the feature map or the earlier decisions.
 
-- Spec store format and location (files vs database; which dataset).
-- Reconcile loop granularity (per-controller loops vs a single global pass).
-- compose → containerd translation approach (nerdctl compose wrapper vs own engine).
-- RBAC capability taxonomy (which roles and capabilities).
-- Update image format and slot/bootloader specifics.
-- API resource model / OpenAPI shape.
+- Spec store format and location → persistent OS-disk partition, versioned/snapshotted
+  (ADR-0013).
+- Reconcile loop granularity → per-controller loops over a shared event source
+  (ADR-0017).
+- compose → containerd translation approach → nerdctl compose wrapper, version pinned
+  in the image (ADR-0004 consequence).
+- RBAC capability taxonomy → fixed roles with a capability map: admin, storage-admin,
+  share-admin, app-admin, auditor, read-only (ADR-0018).
+- Update image format and slot/bootloader specifics → standard A/B tooling (rauc /
+  ostree / ABRoot candidates), signed images with a baked-in trust anchor
+  (ADR-0001 amendment, ADR-0006 amendment, ADR-0013).
+- API resource model / OpenAPI shape → feature-map-aligned resources with
+  desired-state CRUD + status, declared in `contracts/` (ADR-0019).
+- Authentication → sessions for the UI + API tokens for CLI/automation, Argon2id
+  hashing, enforced at admission (ADR-0020).
+- Disk health → core polls SMART via smartctl; status + Prometheus gauges,
+  thresholds spec-declared (ADR-0021).
+- Snapshot/scrub scheduling → one shared `Schedule` resource (ADR-0022).
+- Spec-store schema evolution → versioned store with forward migration, rollback
+  via snapshot restore (ADR-0013).
 
 > Resolved by the `scope-missing-plane` change (no longer open):
 > - NFS share management → ZFS `sharenfs` properties, not `/etc/exports`
@@ -212,3 +237,20 @@ changes as the architecture is detailed.
 >   zvols as an explicit escape hatch (ADR-0004).
 > - Rollback sourcing → composite rollback: spec-store revert + ZFS snapshot
 >   rollback (ADR-0002).
+
+> Additional decisions captured during the architecture phase (see ADRs):
+> - Network planes configurable at install, with per-interface IP (ADR-0014).
+> - Encryption keyfiles on the OS-disk partition, headless unlock, config dataset
+>   itself encrypted (ADR-0015).
+> - Logging + audit via journald, forwarded to the `config` dataset, snapshotted
+>   on the shared `Schedule` (ADR-0016, ADR-0022).
+> - NVMe-oF NQN allowlist per export (ADR-0003 amendment).
+> - NFSv4 `idmapd` for UID mapping (ADR-0005 amendment).
+> - Update images signed, verified pre-boot (ADR-0006 amendment).
+> - Writable-state role renamed `config`; spec store excluded (ADR-0007 amendment).
+> - OS-disk sizing check at install for spec-store headroom (ADR-0011 amendment).
+> - App identity via dedicated UID per stack (ADR-0004/0005 amendment).
+> - Imperative ops as action endpoints within the declarative model (ADR-0002
+>   amendment).
+> - RO-root writable-config convention: generated files on `config` dataset,
+>   `/etc` symlinks (ADR-0001 amendment).

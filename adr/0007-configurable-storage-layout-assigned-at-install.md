@@ -4,19 +4,24 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.7, decision 7
+- Amendments: the writable-state role is renamed `config` (the spec store is *not*
+  part of it — the spec store lives on the OS disk, ADR-0013). It holds forwarded
+  logs/audit (ADR-0016) and generated daemon config fragments (ADR-0001); it no
+  longer holds encryption keyfiles, which live on the OS disk (ADR-0015,
+  resolve-control-plane-gaps D6).
 
 ## Context
 
-The system has several writable-state roles: system/config (spec store), app
-images and compose state, and user data. Where those live on the pool layout is a
-hardware-dependent choice (pool count, mirror/raidz, disk sizes) that cannot be
-fixed in the image.
+The system has several writable-state roles: config, app images and compose
+state, and user data. Where those live on the pool layout is a hardware-dependent
+choice (pool count, mirror/raidz, disk sizes) that cannot be fixed in the image.
 
 ## Decision
 
-The roles of datasets (system/config, app/images, data) are assigned at install
+The roles of datasets (`config`, `app/images`, `data`) are assigned at install
 time by the installer, not fixed in the image. Everything else — controllers,
-spec store, compose, shares — points at the assigned datasets.
+compose, shares — points at the assigned datasets. The spec store is excluded by
+design (ADR-0013).
 
 ## Alternatives considered
 

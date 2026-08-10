@@ -7,6 +7,12 @@
   ADR-0009
 - Amendments: `core` baked into the RO image; no subsystem writes host files
   under `/` (including `/etc/exports`).
+- Amendments: slot/bootloader mechanism is delegated to a standard A/B tool
+  (rauc / ostree / ABRoot candidates); the specific tool is pinned in the image
+  and resolved in the `os-image` design (ADR-0013).
+- Amendments: RO-root writable-config convention — controllers generate full
+  config files (samba, idmapd, NTP, ...) on the `config` dataset; the image
+  ships symlinks from `/etc` pointing at them (resolve-control-plane-gaps D2).
 
 ## Context
 
@@ -39,5 +45,9 @@ slot.
   datasets, never on `/`.
 - No subsystem writes host files under `/` — including `/etc/exports`, which is
   not used (NFS shares are ZFS `sharenfs` properties, ADR-0009).
+- Daemons that need writable config follow one convention: the image ships a
+  symlink from the RO `/etc` path to a generated file on the `config` dataset
+  (e.g. `/etc/smb.conf`), and the owning controller regenerates the file on the
+  `config` dataset. No daemon config lives in the immutable image (ADR-0007).
 - A/B = two slots; rollback = fall to the other slot; boot failure falls back
   automatically.

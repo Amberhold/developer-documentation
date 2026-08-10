@@ -6,6 +6,8 @@
 - References: `docs/architecture/01-os-feature-map.md` §3.4, decision 4
 - Amendments: default volume backing is a ZFS dataset per volume; zvols are an
   explicit escape hatch (design decision D3).
+- Amendments: app identity — the identity controller allocates a dedicated UID
+  per app stack; that UID owns the app's ZFS-backed dataset (resolve-control-plane-gaps D9).
 
 ## Context
 
@@ -36,3 +38,6 @@ escape hatch where an app requires block storage semantics (e.g. databases).
 - The Apps controller must map compose volumes to ZFS datasets by default, with
   the zvol escape hatch documented per app (ADR-0010 governs concurrent block
   exposure).
+- Each app stack runs as a dedicated UID allocated by the identity controller
+  (ADR-0005); that UID owns the stack's dataset(s), so app data ownership is
+  derived identity, never root by default.

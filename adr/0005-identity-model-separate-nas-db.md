@@ -6,6 +6,11 @@
 - References: `docs/architecture/01-os-feature-map.md` §3.5, decision 5
 - Amendments: NFS identity model recorded — host-based access with UID alignment
   to the NAS user (the SMB path uses the samba passdb link).
+- Amendments: NFS identity mechanism — UID alignment is policy; NFSv4 `idmapd`
+  performs domain mapping so mismatched client UIDs still resolve to the NAS UID.
+- Amendments: app identity — the identity controller allocates a dedicated UID
+  per app stack (alongside user and share UIDs), so app datasets have derived
+  ownership (resolve-control-plane-gaps D9).
 
 ## Context
 
@@ -32,6 +37,9 @@ ownership is required, and is auto-created when a share grants access.
   passdb entry.
 - The Identity controller owns the user DB ↔ UID ↔ samba mapping and keeps the
   materialized system/SMB link consistent with the NAS user record.
+- UIDs are also allocated to app stacks (ADR-0004): the controller owns a single
+  UID allocation space shared by users and apps, so POSIX ownership stays
+  consistent across shares and app datasets.
 - RBAC is enforced at API admission (ADR-0002); host accounts are derived from,
   never the source of, NAS identity.
 - **NFS model**: NFS has no user authentication. Share access is granted to

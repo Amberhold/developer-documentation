@@ -6,6 +6,9 @@
 - References: `docs/architecture/01-os-feature-map.md` §3.6, decision 6; ADR-0001
 - Amendments: update delivery is repo-channel-only — images are pulled from a
   configured repo channel; there is no manual image-upload path.
+- Amendments: image integrity — update images are signed and the trust anchor is
+  baked into the read-only image; the Update controller verifies the inactive
+  slot's signature before it is activated.
 
 ## Context
 
