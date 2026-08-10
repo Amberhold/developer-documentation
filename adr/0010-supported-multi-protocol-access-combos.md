@@ -5,6 +5,8 @@
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.3, decision 5 (D5);
   ADR-0003, ADR-0009
+- Amendments: app workloads added to the matrix — a dataset is an app volume or a
+  network share, never both.
 
 ## Context
 
@@ -20,6 +22,10 @@ The supported exposure matrix must be explicit rather than accidental.
 - **NVMe-oF: dedicated zvols only** — a dataset's data is never exported over
   NVMe-oF; block exports are dedicated zvols (ADR-0003) and are not concurrently
   served over a file protocol.
+- **App volume XOR network share: enforced** — a dataset is either a compose
+  volume (ADR-0004) or a network share, never both. Concurrent app + file-protocol
+  writers on one dataset is the same coherency hazard excluded above, so the
+  matrix closes it explicitly.
 
 ## Alternatives considered
 
@@ -30,5 +36,7 @@ The supported exposure matrix must be explicit rather than accidental.
 
 - The `file-shares` design encodes SMB+NFS on a dataset; the `block-shares`
   design restricts NVMe-oF exports to zvols.
+- The `app-workloads` design treats app volumes and network shares as mutually
+  exclusive per dataset.
 - The API/UI present the supported/unsupported matrix so users are not surprised
   by a rejected combination.

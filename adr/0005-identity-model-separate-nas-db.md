@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.5, decision 5
+- Amendments: NFS identity model recorded — host-based access with UID alignment
+  to the NAS user (the SMB path uses the samba passdb link).
 
 ## Context
 
@@ -32,3 +34,8 @@ ownership is required, and is auto-created when a share grants access.
   materialized system/SMB link consistent with the NAS user record.
 - RBAC is enforced at API admission (ADR-0002); host accounts are derived from,
   never the source of, NAS identity.
+- **NFS model**: NFS has no user authentication. Share access is granted to
+  allowed hosts (host/IP-based, expressed via `sharenfs`, ADR-0009); the NAS
+  user's UID is the dataset owner, and clients map their client-side UID to that
+  NAS UID to see correct file ownership. The identity controller allocates UIDs
+  so NFS and SMB agree on the same UID for a NAS user.

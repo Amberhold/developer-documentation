@@ -40,7 +40,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 |---|---------|---------------|
 | 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root |
 | 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API |
-| 2 | ZFS storage | Pools, datasets/properties, snapshots, zvols (data-only) |
+| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention), zvols (data-only), native encryption |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
 | 5 | App workloads | Full docker-compose on containerd; ZFS-backed volumes; images on a configured dataset |
@@ -48,9 +48,9 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | Prometheus metrics for every subsystem |
-| 10 | Networking | Management network: management IP (DHCP or static); where API/UI/shares bind |
+| 10 | Networking | Management network: management IP (DHCP or static), hostname, NTP; where API/UI/shares bind |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (decision 7); admin bootstrap |
+| 12 | Installer | First-boot: assign storage layout roles (decision 7); import existing pools with role reassignment; admin bootstrap |
 | 13 | Logging + audit | System logs and audit log of admin actions; retention |
 | 14 | Disk health | Scrub schedule; SMART health monitoring |
 
@@ -63,7 +63,9 @@ silent gaps:
 - **Backup / replication** — out of scope for v1. ZFS snapshots (in scope,
   feature 2) are the primitive a future replication feature builds on.
 - **TLS / firewall** — external network exposure hardening is out of scope for v1;
-  the management network binds per feature 10.
+  the management network binds per feature 10. In v1 the API/UI serve plain HTTP
+  on the management LAN (no TLS, no certificate management); the skeleton diagram
+  reflects this baseline.
 - **Alerting** — no push-based alerting (email/webhook) in v1; status is surfaced
   via API/UI and Prometheus metrics (feature 9).
 - **AD/LDAP join** — no directory-service integration in v1; identity is the
@@ -140,27 +142,29 @@ silent gaps:
 ## 4. Architecture skeleton
 
 ```
-┌───────────┐  ┌───────────┐
-│  Web-UI   │  │  CLI      │          thin clients
-└─────┬─────┘  └─────┬─────┘
-      └──────┬───────┘
-             │ HTTPS + RBAC admission
-      ┌──────▼───────────────┐
-      │       API            │   contracts/ (OpenAPI)
-      └──────┬───────────────┘
-             │ desired-state CRUD (declarative)
-      ┌──────▼───────────────────────────────┐
-      │  core daemon                          │
-      │   spec store (source of truth)        │   persisted on a
-      │   └─ reconciler loop (wanted≠actual)  │   configured dataset
-      │        ├─ ZFS controller      │ zpool/zfs (go-zfs)
-      │        ├─ SMB controller      │ samba + smbpasswd
-      │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009)
-      │        ├─ NVMe-oF controller  │ configfs (nvmet)
-      │        ├─ Apps controller     │ nerdctl compose → containerd
-      │        ├─ Identity controller │ user DB ↔ UID ↔ samba
-      │        └─ Update controller   │ A/B slot swap + reboot
-      └──────────────────────────────────────┘
+┌─────────────────┐  ┌───────────┐
+│  Web-UI         │  │  CLI      │          thin clients
+│  (static server │  └─────┬─────┘
+│   in image)     │        │
+└────────┬────────┘        │
+         └───────┬─────────┘
+                 │ HTTP + RBAC admission
+          ┌──────▼───────────────┐
+          │       API            │   contracts/ (OpenAPI)
+          └──────┬───────────────┘
+                 │ desired-state CRUD (declarative)
+          ┌──────▼───────────────────────────────┐
+          │  core daemon                          │
+          │   spec store (source of truth)        │   persisted on a
+          │   └─ reconciler loop (wanted≠actual)  │   configured dataset
+          │        ├─ ZFS controller      │ zpool/zfs (go-zfs)
+          │        ├─ SMB controller      │ samba + smbpasswd
+          │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009)
+          │        ├─ NVMe-oF controller  │ configfs (nvmet)
+          │        ├─ Apps controller     │ nerdctl compose → containerd
+          │        ├─ Identity controller │ user DB ↔ UID ↔ samba
+          │        └─ Update controller   │ A/B slot swap + reboot
+          └──────────────────────────────────────┘
 ```
 
 ## 5. Key flows

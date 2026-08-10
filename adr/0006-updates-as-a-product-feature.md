@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.6, decision 6; ADR-0001
+- Amendments: update delivery is repo-channel-only — images are pulled from a
+  configured repo channel; there is no manual image-upload path.
 
 ## Context
 
@@ -32,3 +34,7 @@ amendment), core updates are OS updates and flow through this same path.
   Prometheus metrics (ADR-0008).
 - `infra` image builds and the update payload are a first-class part of the
   system, not an ops afterthought.
+- Delivery is repo-only: the Update controller pulls images from a configured
+  update channel (repo URL + channel). No manual upload path exists — an
+  air-gapped/offline update flow is deliberately out of scope for v1, consistent
+  with the mgmt-LAN networking posture (feature 10).
