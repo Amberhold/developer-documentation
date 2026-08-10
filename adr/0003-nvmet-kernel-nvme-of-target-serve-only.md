@@ -4,8 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.3, decision 3
-- Amendments: access control — each block export carries an explicit NQN
-  allowlist; `allow_any_host` is never enabled.
 
 ## Context
 
@@ -16,7 +14,9 @@ SPDK target.
 ## Decision
 
 Use the kernel `nvmet` target, driven by the daemon through configfs. Amberhold
-serves zvols only; it does not consume remote NVMe-oF (serve-only scope).
+serves zvols only; it does not consume remote NVMe-oF (serve-only scope). Access
+control is an explicit NQN allowlist per block export; `allow_any_host` is never
+enabled.
 
 ## Alternatives considered
 

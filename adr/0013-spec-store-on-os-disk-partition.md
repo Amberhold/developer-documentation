@@ -45,7 +45,7 @@ reverse-migrating, so an older `core` never reads a newer schema
 - OS-disk failure means config loss; recovery is reinstall + `zpool import`
   (ADR-0011 recovery path). Accepted: data pools and app images are unaffected.
 - OS-disk sizing must reserve headroom for spec-store versioning/snapshots; sizing
-  is an install-time check (ADR-0011 amendment), with a 128–256 GB floor.
+  is an install-time check (ADR-0011), with a 128–256 GB floor.
 - The store's schema version makes update/rollback (ADR-0006) explicit: a new
   `core` migrates forward; a rolled-back `core` restores a compatible prior
   snapshot. Downgrade across a schema change is never attempted.

@@ -29,7 +29,7 @@ confirmed principal.
 - **API tokens only**: uniform for clients, but the UI would have to manage a
   token client-side instead of a cookie session.
 - **HTTP Basic**: simplest, but transmits credentials on every request over the
-  plain-HTTP management-LAN baseline (feature-map deferred TLS, D6).
+  plain-HTTP management-LAN baseline (scope-missing-plane D6).
 
 ## Consequences
 

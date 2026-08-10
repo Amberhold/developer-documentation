@@ -12,7 +12,7 @@ Feature 2 lists native ZFS encryption as minimal scope, but nothing decided wher
 keys live or how encrypted datasets unlock. Because updates reboot headless
 (ADR-0006) and the root is read-only (ADR-0001), any unlock that needs human input
 breaks the update flow. The threat model is at-rest protection on a management
-LAN (feature 10); network hardening is deferred (feature-map D6).
+LAN (feature 10); network hardening is deferred (scope-missing-plane D6).
 
 ## Decision
 

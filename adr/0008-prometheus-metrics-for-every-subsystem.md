@@ -4,8 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.8, decision 8
-- Amendments: scrape-only hosting confirmed — `core` exposes `/metrics`; an
-  external Prometheus scrapes it; no embedded Prometheus server.
 
 ## Context
 
@@ -30,9 +28,10 @@ and audit health. No subsystem is unobservable.
 
 - A metrics endpoint ships in `core`; every controller registers its own
   collectors (feature 9, Observability).
-- Alerting (deferred, feature-map D6) can later consume the same metrics.
+- Alerting (deferred, scope-missing-plane D6) can later consume the same metrics.
 - Metrics names and labels are part of the `contracts` surface.
-- Hosting is scrape-only: `core` exposes `/metrics` and an external Prometheus
-  scrapes it. There is no embedded Prometheus server on the appliance (no
-  stateful storage on the RO-root device); on-device dashboards, if any, are a
-  `web-ui`/`observability` question, not a hosting one.
+- Hosting is scrape-only (resolve-architecture-gaps D9): `core` exposes
+  `/metrics` and an external Prometheus scrapes it. There is no embedded
+  Prometheus server on the appliance (no stateful storage on the RO-root device);
+  on-device dashboards, if any, are a `web-ui`/`observability` question, not a
+  hosting one.

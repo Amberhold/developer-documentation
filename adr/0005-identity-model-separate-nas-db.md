@@ -4,13 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.5, decision 5
-- Amendments: NFS identity model recorded — host-based access with UID alignment
-  to the NAS user (the SMB path uses the samba passdb link).
-- Amendments: NFS identity mechanism — UID alignment is policy; NFSv4 `idmapd`
-  performs domain mapping so mismatched client UIDs still resolve to the NAS UID.
-- Amendments: app identity — the identity controller allocates a dedicated UID
-  per app stack (alongside user and share UIDs), so app datasets have derived
-  ownership (resolve-control-plane-gaps D9).
 
 ## Context
 
@@ -39,11 +32,13 @@ ownership is required, and is auto-created when a share grants access.
   materialized system/SMB link consistent with the NAS user record.
 - UIDs are also allocated to app stacks (ADR-0004): the controller owns a single
   UID allocation space shared by users and apps, so POSIX ownership stays
-  consistent across shares and app datasets.
+  consistent across shares and app datasets (resolve-control-plane-gaps D9).
 - RBAC is enforced at API admission (ADR-0002); host accounts are derived from,
   never the source of, NAS identity.
-- **NFS model**: NFS has no user authentication. Share access is granted to
-  allowed hosts (host/IP-based, expressed via `sharenfs`, ADR-0009); the NAS
-  user's UID is the dataset owner, and clients map their client-side UID to that
-  NAS UID to see correct file ownership. The identity controller allocates UIDs
-  so NFS and SMB agree on the same UID for a NAS user.
+- **NFS model** (resolve-architecture-gaps D3): NFS has no user authentication.
+  Share access is granted to allowed hosts (host/IP-based, expressed via
+  `sharenfs`, ADR-0009); the NAS user's UID is the dataset owner, and clients map
+  their client-side UID to that NAS UID to see correct file ownership. UID
+  alignment is policy: NFSv4 `idmapd` performs domain mapping so mismatched
+  client UIDs still resolve to the NAS UID. The identity controller allocates
+  UIDs so NFS and SMB agree on the same UID for a NAS user.

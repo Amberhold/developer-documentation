@@ -3,17 +3,8 @@
 - Status: accepted
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
-- References: `docs/architecture/01-os-feature-map.md` §3.1, §3.7; ADR-0001, ADR-0007
-- Amendments: the OS disk carries two persistent partitions: a spec store +
-  keyfiles partition (ADR-0013, ADR-0015) and a plain `config/var` partition
-  holding forwarded logs/audit (ADR-0016) and generated daemon config fragments
-  (ADR-0001). OS-disk sizing is an install-time check with a 128–256 GB floor:
-  two slots + spec-store versioning headroom + logs/audit retention.
-- Amendments: only the `data` (and optional `app`) roles are configurable per
-  ADR-0007; system config state is fixed on this disk, not a pool.
-- Amendments: the OS-disk partitions are plain filesystems — no LUKS, no fs-level
-  snapshots. Recovery is spec-store self-versioning (ADR-0013), config fragment
-  regeneration, and journald rotation/retention (ADR-0016).
+- References: `docs/architecture/01-os-feature-map.md` §3.1, §3.7;
+  `resolve-architecture-gaps` D1; ADR-0001, ADR-0007
 
 ## Context
 
@@ -29,7 +20,11 @@ The A/B squashfs slots, the bootloader, and all system config state live on a
 dedicated OS disk (e.g. a 128–256 GB SSD/NVMe). ZFS pools are pure data; ZFS is
 never the boot media. The OS disk is fixed (one disk, two slots + bootloader +
 two persistent partitions), so boot never depends on pool import. Only the
-`data` (and optional `app`) roles are configurable per ADR-0007.
+`data` (and optional `app`) roles are configurable per ADR-0007; system config
+state is fixed on this disk, not a pool. The OS-disk partitions are plain
+filesystems — no LUKS, no fs-level snapshots; recovery is spec-store
+self-versioning (ADR-0013), config-fragment regeneration, and journald
+rotation/retention (ADR-0016).
 
 Layout of the OS disk:
 

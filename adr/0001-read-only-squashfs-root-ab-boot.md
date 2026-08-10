@@ -4,16 +4,7 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, decision 1; ADR-0006,
-  ADR-0009
-- Amendments: `core` baked into the RO image; no subsystem writes host files
-  under `/` (including `/etc/exports`).
-- Amendments: slot/bootloader mechanism is delegated to a standard A/B tool
-  (rauc / ostree / ABRoot candidates); the specific tool is pinned in the image
-  and resolved in the `os-image` design (ADR-0013).
-- Amendments: RO-root writable-config convention — controllers generate full
-  config files (samba, idmapd, NTP, ...) on the OS-disk `config/var` partition
-  (ADR-0011); the image ships symlinks from `/etc` pointing at them
-  (resolve-control-plane-gaps D2).
+  ADR-0009, ADR-0011
 
 ## Context
 
@@ -26,7 +17,10 @@ OS state) or keep it on a plain read-only partition.
 The root filesystem is a read-only squashfs image; ZFS is reserved exclusively
 for data pools. Updates are delivered as new images in an A/B dual-slot layout;
 the bootloader selects the active slot and a rollback falls back to the other
-slot.
+slot. The slot/bootloader mechanism is delegated to a standard A/B tool (rauc /
+ostree / ABRoot candidates); the specific tool is pinned in the image and the
+slot layout is fixed on the dedicated OS disk (ADR-0011), resolved in the
+`os-image` design.
 
 ## Alternatives considered
 

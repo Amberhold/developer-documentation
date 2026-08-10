@@ -3,8 +3,8 @@
 - Status: accepted
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
-- References: `docs/architecture/01-os-feature-map.md` §3.2, decision 2 (D1);
-  ADR-0001, ADR-0002
+- References: `docs/architecture/01-os-feature-map.md` §3.1, decision 1
+  (consequence), `scope-missing-plane` D1; ADR-0001, ADR-0002
 
 ## Context
 

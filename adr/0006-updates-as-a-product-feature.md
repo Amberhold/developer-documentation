@@ -4,11 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.6, decision 6; ADR-0001
-- Amendments: update delivery is repo-channel-only — images are pulled from a
-  configured repo channel; there is no manual image-upload path.
-- Amendments: image integrity — update images are signed and the trust anchor is
-  baked into the read-only image; the Update controller verifies the inactive
-  slot's signature before it is activated.
 
 ## Context
 
@@ -21,8 +16,10 @@ like any other capability, not left as raw image mechanics.
 System updates are a product feature exposed through the UI/API: trigger an
 update, report progress, perform the reboot, and roll back on failure. The Update
 controller is a normal core controller reconciling the update slice of the spec
-store (ADR-0002). Because `core` is baked into the read-only image (ADR-0001
-amendment), core updates are OS updates and flow through this same path.
+store (ADR-0002). Because `core` is baked into the read-only image (ADR-0001),
+core updates are OS updates and flow through this same path. Delivery is
+repo-channel-only — images are pulled from a configured repo channel and there is
+no manual image-upload path (resolve-architecture-gaps D8).
 
 ## Alternatives considered
 
@@ -41,3 +38,6 @@ amendment), core updates are OS updates and flow through this same path.
   update channel (repo URL + channel). No manual upload path exists — an
   air-gapped/offline update flow is deliberately out of scope for v1, consistent
   with the mgmt-LAN networking posture (feature 10).
+- Image integrity: update images are signed and the trust anchor is baked into
+  the read-only image; the Update controller verifies the inactive slot's
+  signature before it is activated (ADR-0001, ADR-0011).

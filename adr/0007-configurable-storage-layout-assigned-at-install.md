@@ -4,11 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.7, decision 7
-- Amendments: the `config` role is removed. System config state does not live on
-  a pool at all — it lives on OS-disk partitions (spec store + keyfiles, and
-  `config/var` for logs/audit and generated daemon config fragments), ADR-0011.
-  The remaining roles are `app/images` (opt-in) and `data`; encryption keyfiles
-  live on the OS disk (ADR-0015, resolve-control-plane-gaps D6).
 
 ## Context
 
@@ -23,9 +18,10 @@ pools are pure user data and boot never depends on pool import.
 The roles of datasets (`app/images` when the apps feature is in use, and `data`)
 are assigned at install time by the installer, not fixed in the image. Everything
 else — controllers, compose, shares — points at the assigned datasets. System
-config state is excluded by design: the spec store lives on an OS-disk partition
-(ADR-0013) and the `config/var` partition holds logs/audit and generated daemon
-config fragments (ADR-0011, ADR-0016).
+config state is excluded by design (resolve-control-plane-gaps D6): the spec
+store and encryption keyfiles live on an OS-disk partition (ADR-0013, ADR-0015)
+and the `config/var` partition holds logs/audit and generated daemon config
+fragments (ADR-0011, ADR-0016).
 
 ## Alternatives considered
 

@@ -99,7 +99,7 @@ silent gaps:
 - **Implications**: core daemon is a reconciler; spec store is the source of truth;
   RBAC is enforced at API admission, not in the UI. Imperative operations (disk
   replace, scrub now, rollback triggers) are action endpoints that do not mutate
-  spec (ADR-0002 amendment).
+  spec (ADR-0002).
 
 ### 3.3 NVMe-oF: nvmet kernel target, serve-only
 - **Decision**: kernel `nvmet` target, controlled by the daemon via configfs; we serve
@@ -117,8 +117,7 @@ silent gaps:
   plain-directory volumes (no snapshots/replication).
 - **Implications**: images and compose state live on a configured app dataset; app
   data participates in the snapshot/replication story. Each stack runs as a
-  dedicated identity-controller UID that owns its dataset (ADR-0004/0005
-  amendment).
+  dedicated identity-controller UID that owns its dataset (ADR-0004, ADR-0005).
 
 ### 3.5 Identity: separate NAS DB with optional link
 - **Decision**: RBAC identity is a NAS-local user DB (API/UI/CLI). A separate,
@@ -127,8 +126,7 @@ silent gaps:
 - **Alternatives considered**: pure system accounts (couples RBAC to host accounts);
   fully separate (share auth disconnected from users).
 - **Implications**: "create a share user" ⇒ NAS user + optional system UID + optional
-  samba passdb entry. UIDs are also allocated per app stack (ADR-0004/0005
-  amendment).
+  samba passdb entry. UIDs are also allocated per app stack (ADR-0004, ADR-0005).
 
 ### 3.6 Updates: a product feature, not just image mechanics
 - **Decision**: A/B is the mechanism; system updates (trigger, progress, reboot,
@@ -221,7 +219,7 @@ They refine the design but do not change the feature map or the earlier decision
   share-admin, app-admin, auditor, read-only (ADR-0018).
 - Update image format and slot/bootloader specifics → standard A/B tooling (rauc /
   ostree / ABRoot candidates), signed images with a baked-in trust anchor
-  (ADR-0001 amendment, ADR-0006 amendment, ADR-0013).
+  (ADR-0001, ADR-0006, ADR-0011).
 - API resource model / OpenAPI shape → feature-map-aligned resources with
   desired-state CRUD + status, declared in `contracts/` (ADR-0019).
 - Authentication → sessions for the UI + API tokens for CLI/automation, Argon2id
@@ -234,7 +232,7 @@ They refine the design but do not change the feature map or the earlier decision
 
 > Resolved by the `scope-missing-plane` change (no longer open):
 > - NFS share management → ZFS `sharenfs` properties, not `/etc/exports`
->   (ADR-0009, §3.2 consequence of ADR-0001).
+>   (ADR-0009, consequence of ADR-0001).
 > - Compose volume backing (dataset vs zvol) → ZFS dataset per volume by default,
 >   zvols as an explicit escape hatch (ADR-0004).
 > - Rollback sourcing → composite rollback: spec-store revert + ZFS snapshot
@@ -243,18 +241,17 @@ They refine the design but do not change the feature map or the earlier decision
 > Additional decisions captured during the architecture phase (see ADRs):
 > - Network planes configurable at install, with per-interface IP (ADR-0014).
 > - Encryption keyfiles on the OS-disk spec store partition, headless unlock;
->   OS-disk partitions are plain filesystems (ADR-0015 amendment, ADR-0011).
+>   OS-disk partitions are plain filesystems (ADR-0015, ADR-0011).
 > - Logging + audit via journald, forwarded to the OS-disk `config/var` partition,
 >   rotation + retention, no snapshots (ADR-0016, ADR-0011).
-> - NVMe-oF NQN allowlist per export (ADR-0003 amendment).
-> - NFSv4 `idmapd` for UID mapping (ADR-0005 amendment).
-> - Update images signed, verified pre-boot (ADR-0006 amendment).
+> - NVMe-oF NQN allowlist per export (ADR-0003).
+> - NFSv4 `idmapd` for UID mapping (ADR-0005).
+> - Update images signed, verified pre-boot (ADR-0006).
 > - `config` role removed: system config state lives on OS-disk partitions; only
->   `data` + optional `app` roles remain (ADR-0007 amendment).
+>   `data` + optional `app` roles remain (ADR-0007).
 > - OS-disk layout: ESP / slots A+B / spec store + keyfiles / `config/var`; sizing
->   check at install with a 128–256 GB floor (ADR-0011 amendment).
-> - App identity via dedicated UID per stack (ADR-0004/0005 amendment).
-> - Imperative ops as action endpoints within the declarative model (ADR-0002
->   amendment).
+>   check at install with a 128–256 GB floor (ADR-0011).
+> - App identity via dedicated UID per stack (ADR-0004, ADR-0005).
+> - Imperative ops as action endpoints within the declarative model (ADR-0002).
 > - RO-root writable-config convention: generated files on `config/var` partition,
->   `/etc` symlinks (ADR-0001 amendment).
+>   `/etc` symlinks (ADR-0001).

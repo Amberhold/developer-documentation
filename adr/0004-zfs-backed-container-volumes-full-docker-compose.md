@@ -4,10 +4,6 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.4, decision 4
-- Amendments: default volume backing is a ZFS dataset per volume; zvols are an
-  explicit escape hatch (design decision D3).
-- Amendments: app identity — the identity controller allocates a dedicated UID
-  per app stack; that UID owns the app's ZFS-backed dataset (resolve-control-plane-gaps D9).
 
 ## Context
 
@@ -18,9 +14,10 @@ existing docker-compose files to work.
 ## Decision
 
 Support full docker-compose semantics on containerd (via `nerdctl compose` →
-containerd). Container volumes are ZFS-backed — a dataset per volume by default —
-so app data participates in snapshots and replication. A zvol is an explicit
-escape hatch where an app requires block storage semantics (e.g. databases).
+containerd). Container volumes are ZFS-backed — a dataset per volume by default
+(scope-missing-plane D3) — so app data participates in snapshots and
+replication. A zvol is an explicit escape hatch where an app requires block
+storage semantics (e.g. databases).
 
 ## Alternatives considered
 
@@ -41,5 +38,5 @@ escape hatch where an app requires block storage semantics (e.g. databases).
   the zvol escape hatch documented per app (ADR-0010 governs concurrent block
   exposure).
 - Each app stack runs as a dedicated UID allocated by the identity controller
-  (ADR-0005); that UID owns the stack's dataset(s), so app data ownership is
-  derived identity, never root by default.
+  (ADR-0005; resolve-control-plane-gaps D9); that UID owns the stack's
+  dataset(s), so app data ownership is derived identity, never root by default.

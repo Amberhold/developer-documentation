@@ -3,13 +3,8 @@
 - Status: accepted
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
-- References: `docs/architecture/01-os-feature-map.md` §3.3, decision 5 (D5);
-  ADR-0003, ADR-0009
-- Amendments: app workloads added to the matrix — a dataset is an app volume or a
-  network share, never both.
-- Amendments: access-control model for SMB+NFS datasets is per-path grants with
-  UID alignment — NFS grants gate hosts, SMB grants gate users, and UIDs stay
-  consistent via the identity controller (resolve-control-plane-gaps D8).
+- References: `docs/architecture/01-os-feature-map.md` §3.3, §3.4;
+  `scope-missing-plane` D5, `resolve-architecture-gaps` D4; ADR-0003, ADR-0009
 
 ## Context
 
@@ -22,13 +17,16 @@ The supported exposure matrix must be explicit rather than accidental.
 
 - **SMB + NFS on a dataset: supported** — the classic multi-protocol file sharing
   combination; both ride on the same dataset properties (`sharesmb` + `sharenfs`).
+  Access control is per-path grants with UID alignment (resolve-control-plane-gaps
+  D8): NFS grants gate hosts, SMB grants gate users, and UIDs stay consistent via
+  the identity controller.
 - **NVMe-oF: dedicated zvols only** — a dataset's data is never exported over
   NVMe-oF; block exports are dedicated zvols (ADR-0003) and are not concurrently
   served over a file protocol.
-- **App volume XOR network share: enforced** — a dataset is either a compose
-  volume (ADR-0004) or a network share, never both. Concurrent app + file-protocol
-  writers on one dataset is the same coherency hazard excluded above, so the
-  matrix closes it explicitly.
+- **App volume XOR network share: enforced** (resolve-architecture-gaps D4) — a
+  dataset is either a compose volume (ADR-0004) or a network share, never both.
+  Concurrent app + file-protocol writers on one dataset is the same coherency
+  hazard excluded above, so the matrix closes it explicitly.
 
 ## Alternatives considered
 
@@ -43,9 +41,8 @@ The supported exposure matrix must be explicit rather than accidental.
   exclusive per dataset.
 - The API/UI present the supported/unsupported matrix so users are not surprised
   by a rejected combination.
-- **SMB+NFS access control (per-path)**: NFS `sharenfs` controls which hosts may
-  access; SMB `sharesmb`/passdb controls which users may access. The two
-  mechanisms gate different access paths and there is no cross-protocol
-  intersection — file ownership and UIDs are kept coherent by the identity
-  controller (ADR-0005), so a client's view of ownership matches regardless of
-  path. Documented for the `file-shares` design.
+- NFS `sharenfs` controls which hosts may access; SMB `sharesmb`/passdb controls
+  which users may access. The two mechanisms gate different access paths and
+  there is no cross-protocol intersection — file ownership and UIDs are kept
+  coherent by the identity controller (ADR-0005), so a client's view of ownership
+  matches regardless of path. Documented for the `file-shares` design.
