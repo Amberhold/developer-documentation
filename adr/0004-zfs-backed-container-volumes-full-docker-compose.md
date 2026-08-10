@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.4, decision 4
+- Amendments: default volume backing is a ZFS dataset per volume; zvols are an
+  explicit escape hatch (design decision D3).
 
 ## Context
 
@@ -14,13 +16,16 @@ existing docker-compose files to work.
 ## Decision
 
 Support full docker-compose semantics on containerd (via `nerdctl compose` →
-containerd). Container volumes are ZFS-backed — a dataset (or zvol) per volume —
-so app data participates in snapshots and replication.
+containerd). Container volumes are ZFS-backed — a dataset per volume by default —
+so app data participates in snapshots and replication. A zvol is an explicit
+escape hatch where an app requires block storage semantics (e.g. databases).
 
 ## Alternatives considered
 
 - **Reduced/own compose schema**: fragments ecosystem compatibility.
 - **Plain-directory volumes**: no snapshots or replication for app data.
+- **zvol-per-volume default**: block semantics for everything, but needs a
+  filesystem on top and alignment care for most workloads.
 
 ## Consequences
 
@@ -28,4 +33,6 @@ so app data participates in snapshots and replication.
   configurable storage layout).
 - `nerdctl`/compose translation is a moving target; containerd/nerdctl versions
   are pinned in the image (ADR-0001) to bound that risk.
-- The Apps controller must map compose volumes to ZFS datasets/zvols.
+- The Apps controller must map compose volumes to ZFS datasets by default, with
+  the zvol escape hatch documented per app (ADR-0010 governs concurrent block
+  exposure).

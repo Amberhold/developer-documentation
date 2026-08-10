@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.2, decision 2
+- Amendments: rollback is composite — spec-store revert plus ZFS snapshot
+  rollback (design decision D2).
 
 ## Context
 
@@ -30,7 +32,10 @@ requests. RBAC is enforced at API admission, not in the UI.
 - The `core` daemon is a reconciler with a spec store (persisted on a configured
   dataset).
 - Host state is never mutated outside the daemon.
-- Drift detection and rollback fall out of the model: status surfaces
-  actual-vs-desired.
+- Drift detection falls out of the model: status surfaces actual-vs-desired.
+- Rollback is composite: reverting desired state in the spec store (which the
+  reconciler then enforces) *plus* restoring data from ZFS snapshots. Spec revert
+  alone fixes forward drift but cannot undo data written by apps/users; the spec
+  store therefore needs versioning/snapshot support for the revert half.
 - Every controller (ZFS, SMB, NFS, NVMe-oF, Apps, Identity, Update) reconciles
   its slice of the spec store.

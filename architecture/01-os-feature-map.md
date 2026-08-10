@@ -16,11 +16,14 @@ architecture (a declarative reconciler) that subsequent changes build on.
 ┌──────────────────────────────────────────────────────────────┐
 │  CONTROL PLANE  (management)                                  │
 │  API + CLI      Web-UI       RBAC/Users      Metrics          │
+│  Networking (mgmt IP)   Logging + audit                       │
+│  Installer (first boot)                                       │
 │   │  declarative desired-state → core daemon reconciles       │
 └──────────────────────┬───────────────────────────────────────┘
 ┌──────────────────────▼───────────────────────────────────────┐
 │  DATA PLANE  (host features)                                  │
-│   ZFS (data only) ─► pools · datasets · snapshots · zvols    │
+│   disks ─► pool/vdev creation, replacement, scrub, SMART      │
+│   ZFS (data only) ─► datasets · snapshots · zvols            │
 │        │                             │                        │
 │   SMB/NFS ┘ (share a dataset)   NVMe-oF ┘ (nvmet target,     │
 │                                     serve zvols, no client)   │
@@ -45,6 +48,26 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | Prometheus metrics for every subsystem |
+| 10 | Networking | Management network: management IP (DHCP or static); where API/UI/shares bind |
+| 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
+| 12 | Installer | First-boot: assign storage layout roles (decision 7); admin bootstrap |
+| 13 | Logging + audit | System logs and audit log of admin actions; retention |
+| 14 | Disk health | Scrub schedule; SMART health monitoring |
+
+### Deferred areas (future paths, out of v1 scope)
+
+These are deliberately not v1 features. They are recorded here so they read as
+explicit decisions (design decision D6 in the `scope-missing-plane` change), not
+silent gaps:
+
+- **Backup / replication** — out of scope for v1. ZFS snapshots (in scope,
+  feature 2) are the primitive a future replication feature builds on.
+- **TLS / firewall** — external network exposure hardening is out of scope for v1;
+  the management network binds per feature 10.
+- **Alerting** — no push-based alerting (email/webhook) in v1; status is surfaced
+  via API/UI and Prometheus metrics (feature 9).
+- **AD/LDAP join** — no directory-service integration in v1; identity is the
+  NAS-local user DB (ADR-0005).
 
 ## 3. Architecture decisions
 
@@ -66,7 +89,8 @@ architecture (a declarative reconciler) that subsequent changes build on.
 - **Alternatives considered**: imperative actions (simpler now, but drift/rollback are
   hard); hybrid.
 - **Rationale**: idempotent, auditable, natural fit for a "system of record" NAS; UI
-  and CLI become thin clients; drift detection and rollback fall out of the model.
+  and CLI become thin clients; drift detection falls out of the model and rollback is
+  composite (spec-store revert + ZFS snapshot rollback, ADR-0002).
 - **Implications**: core daemon is a reconciler; spec store is the source of truth;
   RBAC is enforced at API admission, not in the UI.
 
@@ -80,7 +104,8 @@ architecture (a declarative reconciler) that subsequent changes build on.
 
 ### 3.4 App workloads: full docker-compose, ZFS-backed volumes
 - **Decision**: full docker-compose semantics on containerd; container volumes are
-  ZFS-backed (dataset/zvol per volume).
+  ZFS-backed — a dataset per volume by default (zvol as explicit escape hatch,
+  ADR-0004).
 - **Alternatives considered**: reduced/own schema (fragments ecosystem compatibility);
   plain-directory volumes (no snapshots/replication).
 - **Implications**: images and compose state live on a configured app dataset; app
@@ -130,7 +155,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
       │   └─ reconciler loop (wanted≠actual)  │   configured dataset
       │        ├─ ZFS controller      │ zpool/zfs (go-zfs)
       │        ├─ SMB controller      │ samba + smbpasswd
-      │        ├─ NFS controller      │ /etc/exports
+      │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009)
       │        ├─ NVMe-oF controller  │ configfs (nvmet)
       │        ├─ Apps controller     │ nerdctl compose → containerd
       │        ├─ Identity controller │ user DB ↔ UID ↔ samba
@@ -175,3 +200,11 @@ changes as the architecture is detailed.
 - RBAC capability taxonomy (which roles and capabilities).
 - Update image format and slot/bootloader specifics.
 - API resource model / OpenAPI shape.
+
+> Resolved by the `scope-missing-plane` change (no longer open):
+> - NFS share management → ZFS `sharenfs` properties, not `/etc/exports`
+>   (ADR-0009, §3.2 consequence of ADR-0001).
+> - Compose volume backing (dataset vs zvol) → ZFS dataset per volume by default,
+>   zvols as an explicit escape hatch (ADR-0004).
+> - Rollback sourcing → composite rollback: spec-store revert + ZFS snapshot
+>   rollback (ADR-0002).
