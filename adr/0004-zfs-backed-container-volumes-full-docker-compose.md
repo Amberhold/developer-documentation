@@ -32,7 +32,9 @@ escape hatch where an app requires block storage semantics (e.g. databases).
 ## Consequences
 
 - Images and compose state live on a configured app dataset (see decision 7,
-  configurable storage layout).
+  configurable storage layout); the app role is opt-in — present only when the
+  apps feature is used. App data, images, and compose state all stay on ZFS and
+  are unaffected by OS-disk loss (ADR-0011).
 - `nerdctl`/compose translation is a moving target; containerd/nerdctl versions
   are pinned in the image (ADR-0001) to bound that risk.
 - The Apps controller must map compose volumes to ZFS datasets by default, with

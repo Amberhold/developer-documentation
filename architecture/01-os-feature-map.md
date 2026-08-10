@@ -43,15 +43,15 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
-| 5 | App workloads | Full docker-compose on containerd; ZFS-backed volumes; images on a configured dataset |
+| 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes; images on a configured (opt-in) dataset |
 | 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020) |
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020) |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | Prometheus metrics for every subsystem |
 | 10 | Networking | Management network: management IP (DHCP or static), hostname, NTP; where API/UI/shares bind. Interface roles (mgmt vs data plane) configurable at install (ADR-0014) |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for spec store + keyfiles (ADR-0011) |
-| 13 | Logging + audit | System logs via journald, forwarded to the `config` dataset; audit trail of admin actions (tagged journald entries), retention (ADR-0016) |
+| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011) |
+| 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016) |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
 
 ### Deferred areas (future paths, out of v1 scope)
@@ -84,8 +84,9 @@ silent gaps:
 - **Implications**:
   - No post-deploy package installs — kernel modules (ZFS, `nvme-target`), samba,
     containerd must all be baked into the image. Image build is a first-class feature.
-  - Writable state (configs, spec store, container images) must live on configured
-    datasets, not on `/`.
+  - Writable state (spec store, keyfiles, generated configs, logs/audit, app
+    images, user data) must live on the OS-disk partitions (ADR-0011) or
+    configured app/data datasets (ADR-0007), never on `/`.
   - A/B = two slots; bootloader selects active slot; rollback = fall to the other.
 
 ### 3.2 Control plane: declarative desired-state API
@@ -135,14 +136,15 @@ silent gaps:
 - **Implications**: an update controller with a reboot in the middle of the flow;
   progress reporting; boot-fail and manual rollback paths.
 
-### 3.7 Storage layout: configurable at install
-- **Decision**: the roles of datasets (`config`, app/images, data) are assigned at
-  install time, not fixed. The spec store is excluded by design — it lives on the
-  OS disk (ADR-0013).
-- **Implications**: an install-time assignment step; everything else points at the
-  assigned datasets. The `config` role holds forwarded logs and daemon config
-  fragments; encryption keyfiles live on the OS disk, not on a pool (ADR-0015);
-  the spec store is excluded by design — it lives on the OS disk (ADR-0013).
+### 3.7 Storage layout: data (+ optional app) configurable at install, system state fixed on the OS disk
+- **Decision**: the roles of datasets (`app/images` when the apps feature is in
+  use, and `data`) are assigned at install time, not fixed. System config state
+  is *not* a pool role: the spec store + keyfiles and the `config/var` partition
+  (logs/audit, generated daemon config fragments) live on the OS disk as plain
+  partitions (ADR-0011, ADR-0013, ADR-0016).
+- **Implications**: an install-time assignment step for the data (and optional
+  app) roles; everything else points at the assigned datasets. Pools are
+  data-only; encryption keyfiles live on the OS disk (ADR-0015).
 
 ### 3.8 Metrics: every subsystem observable
 - **Decision**: Prometheus metrics for pools, shares, apps, API, updates.
@@ -198,10 +200,10 @@ NAS user (API/UI/CLI)
 ### 5.3 Configurable layout
 ```
 installer → assign roles:
-   config dataset  → forwarded logs, daemon config fragments (not keys, not spec)
-   app dataset     → images, compose state
-   data pools      → shares, zvols (user-chosen)
-   OS disk         → slots + spec store + encryption keyfiles (ADRs 0013, 0015)
+   app dataset (opt-in) → images, compose state
+   data pools           → shares, zvols, app volume datasets (user-chosen)
+   OS disk (fixed)      → slots + spec store + keyfiles + config/var (ADR-0011)
+```
 ```
 
 ## 6. Open questions (resolved in the architecture phase)
@@ -240,17 +242,19 @@ They refine the design but do not change the feature map or the earlier decision
 
 > Additional decisions captured during the architecture phase (see ADRs):
 > - Network planes configurable at install, with per-interface IP (ADR-0014).
-> - Encryption keyfiles on the OS-disk partition, headless unlock, config dataset
->   itself encrypted (ADR-0015).
-> - Logging + audit via journald, forwarded to the `config` dataset, snapshotted
->   on the shared `Schedule` (ADR-0016, ADR-0022).
+> - Encryption keyfiles on the OS-disk spec store partition, headless unlock;
+>   OS-disk partitions are plain filesystems (ADR-0015 amendment, ADR-0011).
+> - Logging + audit via journald, forwarded to the OS-disk `config/var` partition,
+>   rotation + retention, no snapshots (ADR-0016, ADR-0011).
 > - NVMe-oF NQN allowlist per export (ADR-0003 amendment).
 > - NFSv4 `idmapd` for UID mapping (ADR-0005 amendment).
 > - Update images signed, verified pre-boot (ADR-0006 amendment).
-> - Writable-state role renamed `config`; spec store excluded (ADR-0007 amendment).
-> - OS-disk sizing check at install for spec-store headroom (ADR-0011 amendment).
+> - `config` role removed: system config state lives on OS-disk partitions; only
+>   `data` + optional `app` roles remain (ADR-0007 amendment).
+> - OS-disk layout: ESP / slots A+B / spec store + keyfiles / `config/var`; sizing
+>   check at install with a 128–256 GB floor (ADR-0011 amendment).
 > - App identity via dedicated UID per stack (ADR-0004/0005 amendment).
 > - Imperative ops as action endpoints within the declarative model (ADR-0002
 >   amendment).
-> - RO-root writable-config convention: generated files on `config` dataset,
+> - RO-root writable-config convention: generated files on `config/var` partition,
 >   `/etc` symlinks (ADR-0001 amendment).

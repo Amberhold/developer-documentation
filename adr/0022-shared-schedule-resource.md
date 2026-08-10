@@ -5,6 +5,10 @@
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` features 2, 14; ADR-0008,
   ADR-0017, ADR-0019, ADR-0021; `resolve-control-plane-gaps` D5, D13
+- Amendments: the `config` dataset no longer exists (ADR-0007) — system config
+  state lives on OS-disk partitions without fs snapshots (ADR-0011), so the D13
+  clause snapshotting the `config` dataset is dropped. `Schedule` covers data/app
+  dataset snapshots and scrubs only.
 
 ## Context
 
@@ -29,7 +33,5 @@ schedules that reference them and reconcile accordingly.
 ## Consequences
 
 - `Schedule` joins the API resource model (ADR-0019) and the `contracts` surface.
-- The `config` dataset is also snapshotted on a `Schedule` (D13), protecting
-  keys and forwarded logs/audit (ADR-0015, ADR-0016).
 - The `storage` change decides schedule expression syntax and defaults; the
   resource shape is fixed here.

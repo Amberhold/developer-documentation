@@ -16,15 +16,18 @@ LAN (feature 10); network hardening is deferred (feature-map D6).
 
 ## Decision
 
-Encrypted datasets use a keyfile stored on the OS-disk config partition (next to
-the spec store, ADR-0013), auto-loaded by `core` at start before any pool import.
+Encrypted datasets use a keyfile stored on the OS-disk spec store partition (next
+to the spec store, ADR-0013), auto-loaded by `core` at start before any pool import.
 There is no passphrase unlock at boot; protection is at-rest only (keys are
 co-located with the system that holds the data).
 
-The `config` dataset (and any encrypted pool) is itself encrypted; because keys
-live on the OS disk rather than on a pool, boot never depends on pool import to
-read them, and the `config` dataset no longer holds plaintext keys
-(resolve-control-plane-gaps D6).
+The OS-disk partitions are plain filesystems (no LUKS, ADR-0011); the keys live
+there in plaintext because boot is headless and the keyfile is on the same
+physical disk as the data pools it unlocks. Because keys live on the OS disk
+rather than on a pool, boot never depends on pool import to read them. Pool and
+app datasets are ZFS-native-encrypted with these keys (resolve-control-plane-gaps
+D6); the threat model is protection against removal/theft of the data disks
+alone.
 
 ## Alternatives considered
 
@@ -38,11 +41,10 @@ read them, and the `config` dataset no longer holds plaintext keys
 
 - Reboot and update flows (ADR-0006) work unattended.
 - Losing the OS disk means losing the keys (and the spec store, ADR-0013) and with
-  them access to encrypted data; the `config` dataset no longer holds plaintext
-  keys and can itself be encrypted. The OS disk is a single point of failure
+  them access to encrypted data. The OS disk is a single point of failure
   (ADR-0011); its redundancy is out of v1 scope.
-- The `config` dataset is snapshotted on the shared `Schedule` resource
-  (ADR-0022), protecting keys and forwarded logs/audit (ADR-0016) against
-  accidental data-path loss (resolve-control-plane-gaps D13).
-- Encryption protects against disk removal/theft, not against compromise of the
-  running system.
+- Encryption protects against removal/theft of the data disks, not against
+  compromise of the running system or removal of the OS disk itself.
+- Forwarded logs/audit and generated daemon config fragments are not encrypted:
+  they live on the plain `config/var` partition and are protected by rotation and
+  regeneration (ADR-0016), not by encryption or snapshots (ADR-0011).

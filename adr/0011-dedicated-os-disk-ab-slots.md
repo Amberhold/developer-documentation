@@ -4,11 +4,16 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, §3.7; ADR-0001, ADR-0007
-- Amendments: the OS disk carries a persistent config partition holding the spec
-  store (ADR-0013); OS-disk sizing is an install-time check reserving free headroom
-  ≥ N GB for spec-store versioning/snapshots, N defined by the installer design.
-- Amendments: the OS-disk config partition also carries encryption keyfiles
-  (ADR-0015); the installer sizing check accounts for them (resolve-control-plane-gaps D6).
+- Amendments: the OS disk carries two persistent partitions: a spec store +
+  keyfiles partition (ADR-0013, ADR-0015) and a plain `config/var` partition
+  holding forwarded logs/audit (ADR-0016) and generated daemon config fragments
+  (ADR-0001). OS-disk sizing is an install-time check with a 128–256 GB floor:
+  two slots + spec-store versioning headroom + logs/audit retention.
+- Amendments: only the `data` (and optional `app`) roles are configurable per
+  ADR-0007; system config state is fixed on this disk, not a pool.
+- Amendments: the OS-disk partitions are plain filesystems — no LUKS, no fs-level
+  snapshots. Recovery is spec-store self-versioning (ADR-0013), config fragment
+  regeneration, and journald rotation/retention (ADR-0016).
 
 ## Context
 
@@ -20,10 +25,20 @@ a prerequisite for the `os-image`, `installer`, and `system-update` designs.
 
 ## Decision
 
-The A/B squashfs slots and the bootloader live on a dedicated small OS disk
-(e.g. a 64-128 GB SSD/NVMe). ZFS pools are pure data; ZFS is never the boot media.
-The OS disk is fixed (one disk, two slots + bootloader); everything else — system
-config, app images, user data — is configurable per ADR-0007.
+The A/B squashfs slots, the bootloader, and all system config state live on a
+dedicated OS disk (e.g. a 128–256 GB SSD/NVMe). ZFS pools are pure data; ZFS is
+never the boot media. The OS disk is fixed (one disk, two slots + bootloader +
+two persistent partitions), so boot never depends on pool import. Only the
+`data` (and optional `app`) roles are configurable per ADR-0007.
+
+Layout of the OS disk:
+
+```
+┌──────┬──────────┬──────────┬─────────────────────────┬─────────────────────────┐
+│  ESP │ Slot A   │ Slot B   │ spec store + keyfiles   │ config/var             │
+│      │ RO sqfs  │ RO sqfs  │ (self-versioned)        │ logs · audit · conf    │
+└──────┴──────────┴──────────┴─────────────────────────┴─────────────────────────┘
+```
 
 ## Alternatives considered
 
@@ -32,20 +47,28 @@ config, app images, user data — is configurable per ADR-0007.
   exists to avoid.
 - **EFI/ESP-based slots**: no separate disk needed, but the ESP is small and
   sizing two squashfs images on it is atypical.
+- **System config on a `config` pool dataset (earlier ADR-0007 role)**: gave ZFS
+  snapshots of config/logs, but coupled OS state to pool availability and made
+  boot depend on pool import; rejected in favor of plain OS-disk partitions.
 
 ## Consequences
 
 - The installer and hardware planning must account for a dedicated OS disk
-  (feature 12, `installer`).
+  (feature 12, `installer`), including a 128–256 GB sizing floor for slots +
+  spec store + `config/var`.
 - The bootloader selects the active slot from the OS disk; rollback and boot-fail
   fallback (ADR-0001) operate entirely on this disk and never touch pools.
 - Data pools can be created, imported, or rebuilt independently of the OS disk —
   including the reinstall recovery path (feature 12 `zpool import`).
-- The spec store lives on a persistent partition of this disk (ADR-0013), so boot
-  never depends on pools; its versioning/snapshot headroom drives the disk size
-  check at install.
+- The spec store and keyfiles live on a persistent partition of this disk
+  (ADR-0013, ADR-0015), so boot never depends on pools; spec-store
+  versioning/snapshot headroom drives the disk size check at install.
+- `config/var` is a plain filesystem partition: forwarded logs/audit (ADR-0016)
+  and generated daemon config fragments (ADR-0001) are protected by rotation and
+  regeneration, not snapshots. App images and compose state stay on the ZFS `app`
+  dataset (ADR-0004), so they are unaffected by OS-disk loss.
 - The OS disk is a single point of failure: it now holds slots, the bootloader,
-  the spec store (ADR-0013), and encryption keyfiles (ADR-0015). Data pools are
-  unaffected by OS-disk loss, but config and keys are recovered via reinstall +
-  `zpool import` only. Redundancy for the OS disk is accepted as out of scope
-  for v1.
+  the spec store + keys (ADR-0013, ADR-0015), and `config/var`. Data pools and
+  app images are unaffected by OS-disk loss, but config, keys, and logs are
+  recovered via reinstall + `zpool import` only. Redundancy for the OS disk is
+  accepted as out of scope for v1.

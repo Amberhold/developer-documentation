@@ -17,10 +17,12 @@ story for both the OS disk and the pools.
 
 ## Decision
 
-The spec store lives on a persistent config partition on the dedicated OS disk,
-outside the A/B slots. Boot reads the spec before any pool import: `core` starts
-reconciling from the spec with pools absent, then imports pools as they become
-available. Updates swap slots and never touch the spec store.
+The spec store lives on a persistent partition on the dedicated OS disk, outside
+the A/B slots, alongside the encryption keyfiles (ADR-0015). Boot reads the spec
+before any pool import: `core` starts reconciling from the spec with pools absent,
+then imports pools as they become available. Updates swap slots and never touch
+the spec store. This partition is plain (no LUKS, no fs snapshots, ADR-0011);
+its only recovery mechanism is its own internal versioning.
 
 The spec store is versioned: it records a schema version, and `core` migrates the
 store forward on read. Rollback restores a prior versioned snapshot rather than
@@ -29,9 +31,9 @@ reverse-migrating, so an older `core` never reads a newer schema
 
 ## Alternatives considered
 
-- **Spec store on the configurable `config` dataset (a pool)**: fits ADR-0007 roles,
-  but makes boot depend on pool import and couples the source of truth to pool
-  availability.
+- **Spec store on a `config` pool dataset**: fits the earlier ADR-0007 role model
+  (the `config` role has since been removed — ADR-0007), but makes boot depend on
+  pool import and couples the source of truth to pool availability.
 - **Spec store on a user data pool**: couples config to user data and its failure modes.
 
 ## Consequences
@@ -41,9 +43,9 @@ reverse-migrating, so an older `core` never reads a newer schema
 - Update (ADR-0006) never touches the spec store — slot swap and desired state are
   cleanly separated.
 - OS-disk failure means config loss; recovery is reinstall + `zpool import`
-  (ADR-0011 recovery path). Accepted: data pools are unaffected.
+  (ADR-0011 recovery path). Accepted: data pools and app images are unaffected.
 - OS-disk sizing must reserve headroom for spec-store versioning/snapshots; sizing
-  is an install-time check (ADR-0011 amendment).
+  is an install-time check (ADR-0011 amendment), with a 128–256 GB floor.
 - The store's schema version makes update/rollback (ADR-0006) explicit: a new
   `core` migrates forward; a rolled-back `core` restores a compatible prior
   snapshot. Downgrade across a schema change is never attempted.
