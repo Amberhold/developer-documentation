@@ -15,11 +15,14 @@ metrics names/labels as a contract (ADR-0008).
 
 ## Decision
 
-One capability-first OpenAPI: resources mirror the feature map — pools, datasets,
-snapshots, shares (file + block exports), apps, users/roles, updates, networking.
-Each resource has desired-state CRUD plus a status object (wanted vs actual, per
-ADR-0002). A cron-like `Schedule` resource is part of the model, consumed by the
-snapshot and scrub controllers (ADR-0022). The contract lives in `contracts/`.
+One capability-first OpenAPI: resources mirror the feature map — pools, disks,
+datasets, snapshots, shares (file + block exports), apps, users/roles, updates,
+networking. Disks exist independent of pool membership (spares, unassigned, and
+failed disks are not pool members), so disk inventory and per-disk health live on
+their own resource (ADR-0021). Each resource has desired-state CRUD plus a status
+object (wanted vs actual, per ADR-0002). A cron-like `Schedule` resource is part
+of the model, consumed by the snapshot and scrub controllers (ADR-0022). The
+contract lives in `contracts/`.
 
 ## Alternatives considered
 

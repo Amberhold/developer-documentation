@@ -18,8 +18,9 @@ image — the same shape of problem ADR-0007 solved for storage.
 Interface roles (management plane vs data plane) are assigned at install time,
 mirroring ADR-0007's storage-role assignment. The management plane carries API/UI
 and DNS/hostname/NTP; the data plane carries SMB/NFS/NVMe-oF share traffic. App
-workloads publish ports on the management plane by default (ADR-0004 apps are
-thin clients over the API).
+workloads (ADR-0004) are general compose containers, not thin API clients — they
+publish ports on the management plane by default, and their port publishing
+follows plane membership like any other share.
 
 Each plane's interface also gets its IP configuration (DHCP or static) in the
 same install step, mirroring the management IP (resolve-control-plane-gaps D11).

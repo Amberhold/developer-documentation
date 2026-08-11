@@ -41,8 +41,10 @@ alone.
 
 - Reboot and update flows (ADR-0006) work unattended.
 - Losing the OS disk means losing the keys (and the spec store, ADR-0013) and with
-  them access to encrypted data. The OS disk is a single point of failure
-  (ADR-0011); its redundancy is out of v1 scope.
+  them access to encrypted data. This is the authoritative recovery story: the
+  reinstall + `zpool import` path (ADR-0011, ADR-0013) recovers unencrypted data
+  only; encrypted datasets are unrecoverable after OS-disk loss. The OS disk is a
+  single point of failure (ADR-0011); its redundancy is out of v1 scope.
 - Encryption protects against removal/theft of the data disks, not against
   compromise of the running system or removal of the OS disk itself.
 - Forwarded logs/audit and generated daemon config fragments are not encrypted:

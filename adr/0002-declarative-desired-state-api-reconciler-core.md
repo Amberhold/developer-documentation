@@ -29,7 +29,10 @@ requests. RBAC is enforced at API admission, not in the UI.
 
 - The `core` daemon is a reconciler with a spec store (persisted on the OS-disk
   spec-store partition, ADR-0013).
-- Host state is never mutated outside the daemon.
+- Management surfaces (API/UI/CLI) never mutate host state except through the
+  daemon. Bootstrap exceptions sit outside the reconciler: the installer
+  (feature 12) performs first-boot setup, and OS-level services (bootloader,
+  journald, kernel) operate as on any Debian host.
 - Drift detection falls out of the model: status surfaces actual-vs-desired.
 - Rollback is composite: reverting desired state in the spec store (which the
   reconciler then enforces) *plus* restoring data from ZFS snapshots

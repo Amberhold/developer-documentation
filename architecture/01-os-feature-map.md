@@ -40,7 +40,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 |---|---------|---------------|
 | 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root |
 | 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API |
-| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
+| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015 — OS-disk loss loses the keyfile, so encrypted datasets are unrecoverable), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
 | 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes; images on a configured (opt-in) dataset |
@@ -48,7 +48,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020) |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | Prometheus metrics for every subsystem |
-| 10 | Networking | Management network: management IP (DHCP or static), hostname, NTP; where API/UI/shares bind. Interface roles (mgmt vs data plane) configurable at install (ADR-0014) |
+| 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
 | 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016) |
@@ -206,8 +206,9 @@ installer → assign roles:
 
 ## 6. Open questions (resolved in the architecture phase)
 
-These were open in the discovery phase and are now resolved by ADRs 0013–0022.
-They refine the design but do not change the feature map or the earlier decisions.
+These were open in the discovery phase and are now resolved by ADRs 0013–0022,
+with the update-image bullet also drawing on the earlier ADR-0001/0006. They
+refine the design but do not change the feature map or the earlier decisions.
 
 - Spec store format and location → persistent OS-disk partition, versioned/snapshotted
   (ADR-0013).

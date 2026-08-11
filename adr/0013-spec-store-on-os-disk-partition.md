@@ -43,7 +43,9 @@ reverse-migrating, so an older `core` never reads a newer schema
 - Update (ADR-0006) never touches the spec store — slot swap and desired state are
   cleanly separated.
 - OS-disk failure means config loss; recovery is reinstall + `zpool import`
-  (ADR-0011 recovery path). Accepted: data pools and app images are unaffected.
+  (ADR-0011 recovery path). This applies to unencrypted data only: the
+  encryption keyfiles live on the OS disk (ADR-0015), so encrypted pools and
+  datasets are lost with it.
 - OS-disk sizing must reserve headroom for spec-store versioning/snapshots; sizing
   is an install-time check (ADR-0011), with a 128–256 GB floor.
 - The store's schema version makes update/rollback (ADR-0006) explicit: a new

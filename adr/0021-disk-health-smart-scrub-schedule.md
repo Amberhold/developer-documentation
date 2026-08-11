@@ -18,7 +18,7 @@ shape: monitoring is a controller concern, and every subsystem must be observabl
 
 `core` polls SMART data via `smartctl` on the cadence declared by a `Schedule`
 resource (ADR-0022). Each disk exposes Prometheus gauges (ADR-0008) and a
-per-disk health/status entry in the disk resource's status object (ADR-0019).
+per-disk health/status entry in the `disks` resource's status object (ADR-0019).
 SMART thresholds and scrub cadence are spec-declared, not hardcoded.
 
 ## Alternatives considered
