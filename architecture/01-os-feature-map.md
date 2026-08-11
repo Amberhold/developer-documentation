@@ -47,11 +47,11 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020) |
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020) |
 | 8 | Web-UI | Management console over the API; no direct host access |
-| 9 | Observability | Prometheus metrics for every subsystem |
+| 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
 | 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
 | 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011) |
-| 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016) |
+| 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0027); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
 
 ### Deferred areas (future paths, out of v1 scope)
@@ -145,9 +145,21 @@ silent gaps:
   data-only; encryption keyfiles live on the OS disk (ADR-0015).
 
 ### 3.8 Metrics: every subsystem observable
-- **Decision**: Prometheus metrics for pools, shares, apps, API, updates.
-- **Implication**: each controller exposes counters/gauges; no subsystem is
-  unobservable.
+- **Decision**: OpenTelemetry SDK is the instrumentation layer; Prometheus is the
+  always-on default exporter serving `/metrics` (ADR-0008, amended). Metric names
+  move to the `amberhold.*` catalog with a documented Prometheus translation,
+  declared in `contracts` and enforced by OTEL Views. OTLP export is additive per
+  configured target; a singleton `Telemetry` resource (ADR-0025) carries export,
+  sampling, and log-level configuration. Reconcile passes are traced with a root
+  `reconcile` span and per-controller children, off by default (ADR-0026). Core
+  logs flow through the OTEL pipeline with journald as the durable store
+  (ADR-0027).
+- **Implication**: each controller exposes counters/gauges/histograms via its own
+  OTEL meter; no subsystem is unobservable. Traces and off-box log forwarding
+  require a configured OTLP target; `/metrics` and journald never depend on one.
+- **Cross-references**: feature 9 (Observability), feature 13 (Logging + audit),
+  ADR-0016 (journald), ADR-0025 (telemetry resource), ADR-0026 (tracing),
+  ADR-0027 (log export).
 
 ## 4. Architecture skeleton
 

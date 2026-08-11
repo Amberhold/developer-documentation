@@ -8,7 +8,7 @@
 - [ADR-0005](adr/0005-identity-model-separate-nas-db.md) — identity model (separate NAS DB with optional system/SMB link; NFS host-based access with UID alignment via `idmapd`; app UID allocation)
 - [ADR-0006](adr/0006-updates-as-a-product-feature.md) — updates as a product feature (repo-channel-only delivery; signed images)
 - [ADR-0007](adr/0007-configurable-storage-layout-assigned-at-install.md) — configurable storage layout assigned at install time (`config` role removed — system state on OS-disk partitions; remaining roles `data` + optional `app`)
-- [ADR-0008](adr/0008-prometheus-metrics-for-every-subsystem.md) — Prometheus metrics for every subsystem (scrape-only hosting, no embedded server)
+- [ADR-0008](adr/0008-prometheus-metrics-for-every-subsystem.md) — Prometheus metrics for every subsystem (OTEL SDK instrumentation; scrape-only hosting, no embedded server; Prometheus as the default exporter)
 - [ADR-0009](adr/0009-nfs-share-management-via-zfs-sharenfs.md) — NFS share management via ZFS `sharenfs` properties
 - [ADR-0010](adr/0010-supported-multi-protocol-access-combos.md) — supported multi-protocol concurrent access combos (app volumes are XOR with network shares; per-path grants with UID alignment)
 - [ADR-0011](adr/0011-dedicated-os-disk-ab-slots.md) — dedicated OS disk for the A/B squashfs slots (layout ESP / slots A+B / spec store + keyfiles / `config/var`; 128–256 GB sizing floor; plain partitions, no snapshots; single point of failure accepted)
@@ -23,3 +23,8 @@
 - [ADR-0020](adr/0020-authentication-session-token-argon2.md) — authentication: sessions for the UI, API tokens for CLI/automation, Argon2id
 - [ADR-0021](adr/0021-disk-health-smart-scrub-schedule.md) — disk health: core polls SMART via smartctl, metrics + status
 - [ADR-0022](adr/0022-shared-schedule-resource.md) — shared `Schedule` resource for snapshots and scrubs
+- [ADR-0023](adr/0023-smb-share-management-mechanism.md) — SMB share management via samba config on the `config/var` partition, per-user access control (no `sharesmb`)
+- [ADR-0024](adr/0024-pool-vdev-topology-and-disk-replacement.md) — pool/vdev topology (single pool, mirror/raidz1/raidz2, spares, replacement flow)
+- [ADR-0025](adr/0025-telemetry-resource-otlp-export-config.md) — telemetry resource + OTLP export config (per-target TLS modes, additive OTLP, in-process exporters only)
+- [ADR-0026](adr/0026-reconcile-loop-tracing.md) — reconcile-loop tracing (root `reconcile` span + per-controller children, sampling default 0)
+- [ADR-0027](adr/0027-otel-log-export-journald-store.md) — direct per-component OTEL log export with journald as parallel durable store (audit flow preserved)
