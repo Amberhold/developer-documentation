@@ -243,3 +243,38 @@ conform by construction.
 - **Go package layout** inside `core/` (e.g.
   `internal/{store,eventbus,controller,runtime,api,admission,otel}`) — settled
   when the skeleton change is written, derived from this design.
+
+## 15. Skeleton implementation notes (2026-08-27)
+
+The first `core` implementation (`core-skeleton-auth-slice`) confirmed D1–D10
+and recorded its package layout and any deviation:
+
+- **Package layout**: `cmd/core` (entrypoint) plus
+  `internal/{app,resource,store,eventbus,controller,runtime,telemetry,
+  admission,auth,api,audit}` — the layout open question is settled as derived
+  from the design. `app` is the composition root implementing D6.
+- **D1 (one kind per controller)**: the `auth` subsystem registers four
+  controllers (`User`, `Role`, `Session`, `Token`), one per owned kind, sharing
+  a backing service — no controller owns multiple kinds.
+- **D5 event publication**: the spec store publishes events through a
+  `Publisher` interface wired to the in-process bus at startup; publication
+  happens after the snapshot is committed and is best-effort (a saturated
+  subscriber drops the event, covered by the D3 resync). The store holds
+  immutable snapshots in its index; reads clone, so no goroutine aliases a
+  mutable indexed resource.
+- **D3 serialization**: each controller drains a single queue; events, the
+  periodic resync marker, and backoff retries all funnel through that one
+  consumer, so a controller's reconciles are strictly serialized (no concurrent
+  passes over the same resource).
+- **D4 status preservation**: spec writes preserve the persisted status
+  (clients never write status); only the owning controller mutates it through
+  the store's serialized path.
+- **Telemetry**: the skeleton ships a catalog-enforcing registry (the
+  `amberhold.*` names from `contracts/metrics/catalog.yaml` declared at
+  startup) rendering the Prometheus exposition format on `/metrics`, a
+  subsystem-scoped `slog` logger, and a no-op tracer (sampling zero, no OTLP
+  targets — the ADR-0008 default). The D8 handle resolution is in place; the
+  OTLP exporters land with the telemetry controller change.
+- **On-disk store format**: the skeleton writes one versioned JSON snapshot
+  (`snapshot.json`) with the schema version; the format open question remains
+  reconsiderable, but forward migration on read is implemented (ADR-0013).
