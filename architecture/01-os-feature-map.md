@@ -98,6 +98,7 @@ decision-of-record). This section exists to navigate, not to re-derive.
 | OS disk (writable state) | Spec store + `config/var` on OS-disk partitions; journald logging/audit; versioned spec store | [ADR-0013](adr/0013-os-disk-writable-state.md) |
 | Networking | Two planes, roles + per-interface IP assigned at install | [ADR-0014](adr/0014-network-planes-configurable-at-install.md) |
 | Reconcile | Per-controller reconcile loops over a shared event source | [ADR-0017](adr/0017-per-controller-reconcile-loops.md) |
+| Core daemon | Framework-first controller runtime (D1–D10) + startup sequence + action routing | [ADR-0031](adr/0031-core-daemon-controller-runtime-and-startup-sequence.md) |
 | RBAC | Fixed roles with a capability map, enforced at API admission | [ADR-0018](adr/0018-rbac-fixed-roles-capability-map.md) |
 | API model | Feature-map-aligned API resource model; shared `Schedule` resource | [ADR-0019](adr/0019-feature-map-aligned-api-resource-model.md) |
 | Authentication | Sessions for UI + API tokens for CLI; Argon2id | [ADR-0020](adr/0020-authentication-session-token-argon2.md) |
@@ -147,6 +148,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
             │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
             │        └─ Update controller   │ A/B slot swap + reboot
             └──────────────────────────────────────┘
+    framework-first controller runtime: D1–D10 mechanics, startup sequence,
+    action routing → docs/architecture/02-core-daemon.md (ADR-0031)
 ```
 
 ## 5. Key flows

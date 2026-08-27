@@ -3,10 +3,13 @@
 - Status: accepted
 - Date: 2026-08-10
 - Amended: 2026-08-27 — `config/var` and the spec store now inside the OS-disk
-  LUKS container (host-encryption change)
+  LUKS container (host-encryption change); serialized write path with optimistic
+  concurrency, coalesced status writes, and an in-memory read index
+  (`core-daemon-design`, D5)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.2, §3.7, features 2,
-  13, 14; ADR-0001, ADR-0002, ADR-0007, ADR-0008, ADR-0011
+  13, 14; `docs/architecture/02-core-daemon.md`; ADR-0001, ADR-0002, ADR-0007,
+  ADR-0008, ADR-0011
 
 > Consolidates the former ADR-0013 (spec store on an OS-disk partition) and
 > ADR-0016 (logging + audit via journald forwarded to `config/var`). Both concern
@@ -43,6 +46,18 @@ internal versioning.
 The spec store is versioned: it records a schema version, and `core` migrates the
 store forward on read. Rollback restores a prior versioned snapshot rather than
 reverse-migrating, so an older `core` never reads a newer schema.
+
+The write path is serialized through the store's single writer (a
+mutex-protected append), per `core-daemon-design` D5:
+
+- **Spec writes**: API admission → RBAC → optimistic concurrency check on
+  `resourceVersion` → append (bump `metadata.generation`, new `resourceVersion`)
+  → publish event → audit.
+- **Status writes**: the owning controller (ADR-0017 D4), serialized, coalesced
+  on a short minimum interval to avoid write amplification on busy resources.
+- An **in-memory index** serves API reads, keeping them off the write path.
+- The on-disk concrete format (versioned JSON snapshot directories vs an embedded
+  KV) is reconsiderable at implementation without changing this approach.
 
 ### Logging + audit via journald
 
@@ -89,6 +104,10 @@ container is unlocked.
   with it.
 - OS-disk sizing must reserve headroom for spec-store versioning/snapshots; sizing
   is an install-time check (ADR-0011), with a 128–256 GB floor.
+- A single serialized writer (D5) avoids torn spec/status state and keeps
+  optimistic concurrency on `resourceVersion` coherent; low-rate admin spec
+  writes and coalesced status writes bound write amplification, and the
+  in-memory index keeps API reads off the write path.
 - One logging pipeline with a tagged `audit` namespace; standard journald tooling.
   `journald` on tmpfs means logs exist only up to forward latency after a hard
   crash; acceptable for v1. Retention and rotation are configured on the

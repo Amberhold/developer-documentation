@@ -3,10 +3,13 @@
 - Status: accepted
 - Date: 2026-08-10
 - Amended: 2026-08-11 — Prometheus is the default *exporter*, not the
-  instrumentation model
+  instrumentation model; 2026-08-27 — provider-handle indirection: controllers
+  resolve the running Meter/Tracer/Logger providers through a handle
+  (`core-daemon-design`, D8)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 9, §3.8;
-  ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0018, ADR-0019
+  `docs/architecture/02-core-daemon.md`; ADR-0001, ADR-0002, ADR-0013,
+  ADR-0017, ADR-0018, ADR-0019
 
 > Consolidates the former ADR-0008 (Prometheus metrics), ADR-0025 (telemetry
 > resource / OTLP export), ADR-0026 (reconcile-loop tracing), and ADR-0027
@@ -42,6 +45,12 @@ desired-state spec and status, reconciled by a telemetry controller (ADR-0017).
 The controller owns the lifecycle of the running MeterProvider, TracerProvider,
 and LoggerProvider; controllers reference the providers and never build their own.
 Writing desired state converges the running providers without a daemon restart.
+
+Controllers receive a **provider handle** at registration and resolve the current
+provider per use (or per loop) — they never build or hold providers themselves
+(`core-daemon-design` D8). The handle's resolution tracks the telemetry
+controller's reconvergence, so a controller never keeps a stale provider holding a
+dead pipeline after a reconfigure.
 
 - A **global default block** and an **overrides map keyed by subsystem id**.
   Overrides carry only the fields they change (traces sampling rate, log level,
@@ -121,7 +130,9 @@ OpenTelemetry (samba, nerdctl/containerd, kernel, sshd) remain journald-only.
   question, not a hosting one.
 - A telemetry controller reconciles the spec into provider lifecycles; providers
   are constructed at daemon start from the desired state and rebuilt on spec change
-  (ADR-0017).
+  (ADR-0017). Controllers resolve the running providers through the D8 handle, so
+  a rebuild never strands a controller on a stale provider and no daemon restart
+  is required.
 - OTEL modules are version-pinned and baked into the RO image (ADR-0001); no
   runtime `go get`. Traces/logs flow through the same OTEL SDK.
 - Reconcile passes are traced with a root span per pass and child spans per
