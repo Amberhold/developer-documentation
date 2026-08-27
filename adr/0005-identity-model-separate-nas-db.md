@@ -3,7 +3,8 @@
 - Status: accepted
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
-- References: `docs/architecture/01-os-feature-map.md` §3.5, decision 5
+- References: `docs/architecture/01-os-feature-map.md` §3.5, decision 5;
+  ADR-0029
 
 ## Context
 
@@ -15,7 +16,9 @@ on the host.
 
 RBAC identity is a NAS-local user database used by the API, UI, and CLI. A
 separate, optional link materializes host-level identity only where POSIX/SMB
-ownership is required, and is auto-created when a share grants access.
+ownership is required, and is auto-created when a share grants access. The link
+has two flavors: the POSIX/SMB ownership link, and a JIT-created OIDC subject
+link materialized on first successful OIDC login (ADR-0029).
 
 ## Alternatives considered
 
@@ -29,7 +32,9 @@ ownership is required, and is auto-created when a share grants access.
 - "Create a share user" implies: NAS user + optional system UID + optional samba
   passdb entry.
 - The Identity controller owns the user DB ↔ UID ↔ samba mapping and keeps the
-  materialized system/SMB link consistent with the NAS user record.
+  materialized system/SMB link consistent with the NAS user record. It also owns
+  the JIT-created OIDC subject link (ADR-0029), allocating the UID and
+  materializing the host link on first federated login.
 - UIDs are also allocated to app stacks (ADR-0004): the controller owns a single
   UID allocation space shared by users and apps, so POSIX ownership stays
   consistent across shares and app datasets (resolve-control-plane-gaps D9).

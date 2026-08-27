@@ -44,15 +44,16 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
 | 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes; images on a configured (opt-in) dataset |
-| 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020) |
-| 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020) |
+| 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020), with OIDC as an additional sign-in option for Web-UI sessions (ADR-0029) |
+| 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020); federated principals get roles from IdP `groups` claims while NAS-local principals keep DB-stored roles (ADR-0029) |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
-| 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. v1 default: one management LAN for everything |
+| 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028); v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
 | 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0027); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
+| 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0015 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern) |
 
 ### Deferred areas (future paths, out of v1 scope)
 
@@ -60,16 +61,19 @@ These are deliberately not v1 features. They are recorded here so they read as
 explicit decisions (design decision D6 in the `scope-missing-plane` change), not
 silent gaps:
 
-- **Backup / replication** — out of scope for v1. ZFS snapshots (in scope,
-  feature 2) are the primitive a future replication feature builds on.
-- **TLS / firewall** — external network exposure hardening is out of scope for v1;
-  the management network binds per feature 10. In v1 the API/UI serve plain HTTP
-  on the management LAN (no TLS, no certificate management); the skeleton diagram
-  reflects this baseline.
+- **Replication** — `zfs send/receive` to a remote ZFS host is out of scope for v1.
+  ZFS snapshots (in scope, feature 2) are the primitive a future replication
+  feature builds on. Backups are now feature 15 (off-site restic archive,
+  ADR-0030), distinct from replication: restic is file/stream-level, replication
+  would be block-level to a remote ZFS sink.
+- **Firewall** — external network exposure hardening is out of scope for v1; the
+  management network binds per feature 10. The management plane itself serves
+  HTTPS in v1 (ADR-0028).
 - **Alerting** — no push-based alerting (email/webhook) in v1; status is surfaced
   via API/UI and Prometheus metrics (feature 9).
 - **AD/LDAP join** — no directory-service integration in v1; identity is the
-  NAS-local user DB (ADR-0005).
+  NAS-local user DB (ADR-0005). OIDC (ADR-0029) is an identity *provider* for the
+  Web-UI, distinct from directory sync — this deferral stands.
 - **User/group quotas** — dataset quotas are in v1 (feature 2); `userquota`/
   `groupquota` are deferred with no user-identity pressure.
 
@@ -170,7 +174,7 @@ silent gaps:
 │   in image)     │        │
 └────────┬────────┘        │
           └───────┬─────────┘
-                  │ HTTP + auth (sessions/tokens) + RBAC admission
+                  │ HTTPS + auth (sessions/tokens) + RBAC admission
            ┌──────▼───────────────┐
            │       API            │   contracts/ (OpenAPI)
            └──────┬───────────────┘
@@ -186,6 +190,7 @@ silent gaps:
             │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
             │        ├─ Identity controller │ user DB ↔ UID ↔ samba (app UIDs too)
             │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
+            │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
             │        └─ Update controller   │ A/B slot swap + reboot
             └──────────────────────────────────────┘
 ```
@@ -236,10 +241,15 @@ refine the design but do not change the feature map or the earlier decisions.
 - API resource model / OpenAPI shape → feature-map-aligned resources with
   desired-state CRUD + status, declared in `contracts/` (ADR-0019).
 - Authentication → sessions for the UI + API tokens for CLI/automation, Argon2id
-  hashing, enforced at admission (ADR-0020).
+  hashing, enforced at admission (ADR-0020); OIDC sign-in for Web-UI sessions adds
+  a federated path with roles from IdP claims and TLS as a prerequisite
+  (ADR-0028, ADR-0029).
 - Disk health → core polls SMART via smartctl; status + Prometheus gauges,
   thresholds spec-declared (ADR-0021).
 - Snapshot/scrub scheduling → one shared `Schedule` resource (ADR-0022).
+- Off-site backup → feature 15: restic archive of snapshots of opted-in
+  datasets; the backup story spans ADR-0022 (snapshot primitive) and ADR-0030
+  (off-site archive).
 - Spec-store schema evolution → versioned store with forward migration, rollback
   via snapshot restore (ADR-0013).
 
@@ -268,3 +278,7 @@ refine the design but do not change the feature map or the earlier decisions.
 > - Imperative ops as action endpoints within the declarative model (ADR-0002).
 > - RO-root writable-config convention: generated files on `config/var` partition,
 >   `/etc` symlinks (ADR-0001).
+> - Management-plane TLS with built-in-CA / ACME / manual-import trust modes,
+>   reversing the deferred plain-HTTP baseline (ADR-0028).
+> - OIDC authentication for the Web-UI: single IdP, authorization-code + PKCE,
+>   claims-as-roles for federated principals, JIT NAS account (ADR-0029).

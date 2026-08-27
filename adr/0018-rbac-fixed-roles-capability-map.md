@@ -4,7 +4,7 @@
 - Date: 2026-08-10
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 7, §6; ADR-0002,
-  ADR-0005
+  ADR-0005, ADR-0029
 
 ## Context
 
@@ -33,3 +33,7 @@ link per ADR-0005.
 - Admission is the only enforcement point; the UI never gates capability access
   itself.
 - Role membership is stored in the NAS user DB (ADR-0005).
+- **Override (federated principals)**: role membership stored in the NAS user DB
+  applies to NAS-local principals. OIDC principals derive their roles from the
+  IdP `groups` claims via the claim-to-role mapping (ADR-0029); this override is
+  scoped to the federated principal class only, and the v1 role set is unchanged.
