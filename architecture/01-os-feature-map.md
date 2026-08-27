@@ -129,7 +129,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
           └───────┬─────────┘
                   │ HTTPS + auth (sessions/tokens) + RBAC admission
            ┌──────▼───────────────┐
-           │       API            │   contracts/ (OpenAPI)
+            │       API            │   contracts/ (openapi/v1.yaml +
+            │                       │   metrics/catalog.yaml, ADR-0019)
            └──────┬───────────────┘
                   │ desired-state CRUD + action endpoints (declarative + ops)
             ┌──────▼───────────────────────────────┐
@@ -193,7 +194,8 @@ refine the design but do not change the feature map or the earlier decisions.
   ostree / ABRoot candidates), signed images with a baked-in trust anchor
   (ADR-0001, ADR-0006, ADR-0011).
 - API resource model / OpenAPI shape → feature-map-aligned resources with
-  desired-state CRUD + status, declared in `contracts/` (ADR-0019).
+  desired-state CRUD + status, declared in `contracts/openapi/v1.yaml` with the
+  metric catalog in `contracts/metrics/catalog.yaml` (ADR-0019).
 - Authentication → sessions for the UI + API tokens for CLI/automation, Argon2id
   hashing, enforced at admission (ADR-0020); OIDC sign-in for Web-UI sessions adds
   a federated path with roles from IdP claims and TLS as a prerequisite
