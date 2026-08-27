@@ -33,6 +33,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 │  OS IMAGE                                                     │
 │   Debian · squashfs RO root (not ZFS) · writable config/state │
 │   · A/B dual-slot · updates as a product feature              │
+│   · OS-disk LUKS2 encryption, unlocked at boot (ADR-0031)     │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,7 +41,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 |---|---------|---------------|
 | 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root |
 | 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API |
-| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015 — OS-disk loss loses the keyfile, so encrypted datasets are unrecoverable), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
+| 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0015 — keyfiles now live inside the OS-disk LUKS container and are protected at rest by external unlock factors (YubiKey FIDO2 / USB keyfile / recovery passphrase, ADR-0031); OS-disk loss still loses the keyfile, so encrypted datasets remain unrecoverable), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
 | 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes; images on a configured (opt-in) dataset |
@@ -50,7 +51,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
 | 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028); v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011) |
+| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011); create the OS-disk LUKS2 container and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0031) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0016). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0027); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
 | 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0015 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern) |
@@ -142,11 +143,14 @@ silent gaps:
 - **Decision**: the roles of datasets (`app/images` when the apps feature is in
   use, and `data`) are assigned at install time, not fixed. System config state
   is *not* a pool role: the spec store + keyfiles and the `config/var` partition
-  (logs/audit, generated daemon config fragments) live on the OS disk as plain
-  partitions (ADR-0011, ADR-0013, ADR-0016).
+  (logs/audit, generated daemon config fragments) live on the OS disk
+  (ADR-0011, ADR-0013, ADR-0016). With host encryption (ADR-0031), the OS disk
+  is a single LUKS2 container over slots + spec store + keyfiles + `config/var`,
+  unlocked at boot by an external factor; only the ESP stays plain.
 - **Implications**: an install-time assignment step for the data (and optional
   app) roles; everything else points at the assigned datasets. Pools are
-  data-only; encryption keyfiles live on the OS disk (ADR-0015).
+  data-only; encryption keyfiles live on the OS disk inside the LUKS container
+  (ADR-0015, ADR-0031).
 
 ### 3.8 Metrics: every subsystem observable
 - **Decision**: OpenTelemetry SDK is the instrumentation layer; Prometheus is the
@@ -217,7 +221,8 @@ NAS user (API/UI/CLI)
 installer → assign roles:
    app dataset (opt-in) → images, compose state
    data pools           → shares, zvols, app volume datasets (user-chosen)
-   OS disk (fixed)      → slots + spec store + keyfiles + config/var (ADR-0011)
+   OS disk (fixed)      → ESP (plain) + LUKS2 container: slots + spec store
+                          + keyfiles + config/var (ADR-0011, ADR-0031)
 ```
 ```
 
@@ -274,6 +279,9 @@ refine the design but do not change the feature map or the earlier decisions.
 >   `data` + optional `app` roles remain (ADR-0007).
 > - OS-disk layout: ESP / slots A+B / spec store + keyfiles / `config/var`; sizing
 >   check at install with a 128–256 GB floor (ADR-0011).
+> - Whole-OS-disk LUKS2 encryption unlocked at boot by external factors
+>   (YubiKey FIDO2 / USB keyfile / recovery passphrase) with a per-mode unlock
+>   policy; ESP stays plain with per-slot kernel+initramfs (ADR-0031).
 > - App identity via dedicated UID per stack (ADR-0004, ADR-0005).
 > - Imperative ops as action endpoints within the declarative model (ADR-0002).
 > - RO-root writable-config convention: generated files on `config/var` partition,

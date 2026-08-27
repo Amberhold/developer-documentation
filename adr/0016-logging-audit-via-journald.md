@@ -2,9 +2,10 @@
 
 - Status: accepted
 - Date: 2026-08-10
+- Amended: 2026-08-27 — `config/var` now inside the OS-disk LUKS container (host-encryption change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 13; ADR-0001, ADR-0002,
-  ADR-0007, ADR-0008, ADR-0011
+  ADR-0007, ADR-0008, ADR-0011, ADR-0031
 
 ## Context
 
@@ -39,4 +40,11 @@ per ADR-0008.
   crash; acceptable for v1.
 - Retention and rotation are configured on the `config/var` partition forward
   target; there is no snapshot story for logs (ADR-0011).
+- With host encryption (ADR-0031), `config/var` sits inside the OS-disk LUKS2
+  container: forwarded logs/audit and generated daemon config fragments are
+  encrypted at rest once the container is unlocked. This does not contradict the
+  rotation/regeneration guarantees — logs accumulate on an unlocked host exactly
+  as before, and encryption does not change retention or rotation behavior. A
+  locked host cannot boot the OS at all (ADR-0031), so there is no
+  locked-but-rotating state to reconcile with.
 - Audit and metrics together make admin actions observable (ADR-0008).

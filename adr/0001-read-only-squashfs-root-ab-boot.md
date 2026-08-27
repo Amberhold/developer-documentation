@@ -2,9 +2,10 @@
 
 - Status: accepted
 - Date: 2026-08-10
+- Amended: 2026-08-27 — initramfs boot step and LUKS support constraint (host-encryption change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, decision 1; ADR-0006,
-  ADR-0009, ADR-0011
+  ADR-0009, ADR-0011, ADR-0031
 
 ## Context
 
@@ -22,6 +23,16 @@ ostree / ABRoot candidates); the specific tool is pinned in the image and the
 slot layout is fixed on the dedicated OS disk (ADR-0011), resolved in the
 `os-image` design.
 
+With host encryption (ADR-0031), the OS disk's contents live inside a LUKS2
+container and the rootfs is not mountable until it is unlocked. Kernel and
+initramfs therefore live per slot on the plain ESP: the bootloader selects the
+active slot's kernel+initramfs by bootenv, the initramfs unlocks the OS-disk
+container, and only then mounts the active slot's rootfs (A/B-at-ESP +
+unlock-then-mount, ADR-0011). No unlock is needed to *select* a slot — only to
+*mount* it — so boot-fail fallback still works at the ESP level. The A/B tooling
+candidate must support LUKS-encrypted slots with initramfs unlock; candidates
+that cannot unlock before mounting the rootfs are excluded.
+
 ## Alternatives considered
 
 - **ZFS-on-root**: rich OS-state snapshots, but couples boot to pool state and
@@ -38,7 +49,14 @@ slot layout is fixed on the dedicated OS disk (ADR-0011), resolved in the
   flow through the update feature (ADR-0006), keeping the root immutable.
 - All writable state (spec store, keyfiles, generated configs, logs/audit, app
   images, user data) lives on the OS-disk partitions (ADR-0011) or configured
-  app/data datasets (ADR-0007), never on `/`.
+  app/data datasets (ADR-0007), never on `/`. With host encryption (ADR-0031)
+  the OS-disk writable state is inside the LUKS2 container and only readable
+  after unlock.
+- Boot includes an initramfs step: kernel + initramfs per slot on the plain ESP
+  (ADR-0011), the initramfs unlocks the OS-disk container with an enrolled
+  factor (YubiKey FIDO2 / USB keyfile / recovery passphrase, ADR-0031) before
+  mounting the active slot's rootfs. A/B slot selection and rollback happen at
+  the ESP level and do not require the unlock.
 - No subsystem writes host files under `/` — including `/etc/exports`, which is
   not used (NFS shares are ZFS `sharenfs` properties, ADR-0009).
 - Daemons that need writable config follow one convention: the image ships a

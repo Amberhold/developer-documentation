@@ -31,3 +31,4 @@
 - [ADR-0028](adr/0028-tls-management-plane.md) — TLS on the management plane (HTTPS in v1; built-in CA / ACME / manual import trust modes)
 - [ADR-0029](adr/0029-oidc-authentication.md) — OIDC authentication for the Web-UI (single IdP, authorization-code + PKCE, claims-as-roles, JIT NAS account)
 - [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) — off-site backup of ZFS snapshots with restic (event-driven per-snapshot ingestion, per-dataset opt-in, data-pool-loss recovery boundary)
+- [ADR-0031](adr/0031-host-level-encryption.md) — whole-OS-disk LUKS2 encryption with external unlock factors (YubiKey FIDO2 / USB keyfile / recovery passphrase, per-mode unlock policy, initramfs boot integration)

@@ -2,9 +2,10 @@
 
 - Status: accepted
 - Date: 2026-08-16
+- Amended: 2026-08-27 — repository password now protected at rest inside the OS-disk LUKS container (host-encryption change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 2 (feature 15);
-  ADR-0001, ADR-0006, ADR-0013, ADR-0015, ADR-0017, ADR-0019, ADR-0022;
+  ADR-0001, ADR-0006, ADR-0013, ADR-0015, ADR-0017, ADR-0019, ADR-0022, ADR-0031;
   `backup-restic-snapshots` D1–D6
 
 ## Context
@@ -52,10 +53,12 @@ covered by streaming `zfs send <vol>@<snap>` into `restic backup --stdin`.
 
 The **repository password is co-located** on the OS-disk spec-store partition
 and auto-loaded by `core` at start, exactly the ADR-0015 keyfile pattern — no
-new installer or password-recovery UX. The recovery boundary is therefore
-**data-pool loss only**: the repository does not recover a lost OS disk or the
-repository password itself, and the D1 posture (OS-disk loss loses keys,
-password, and data) is unchanged.
+new installer or password-recovery UX. With host encryption (ADR-0031), the
+spec-store partition is inside the OS-disk LUKS2 container, so the repository
+password is protected at rest and auto-loaded only after the container unlocks.
+The recovery boundary is therefore **data-pool loss only**: the repository does
+not recover a lost OS disk or the repository password itself, and the D1
+posture (OS-disk loss loses keys, password, and data) is unchanged.
 
 A `Backup` resource (ADR-0019) carries the remote URI + backend type
 (S3-compatible, SFTP, rest-server), the retention policy, and an implicit
@@ -99,7 +102,9 @@ per snapshot event, `forget --prune` when the retention policy demands.
   (`zfs send/receive` to a remote ZFS host) remains deferred.
 - The repository protects against data-pool loss only; OS-disk loss keeps its
   D1 unrecoverable posture (ADR-0015) — the repository password is lost with
-  the OS disk.
+  the OS disk. At rest it is now protected inside the OS-disk LUKS container
+  (ADR-0031) and auto-loaded only after unlock, matching the encryption keyfiles;
+  its D1 recovery-boundary text is unchanged.
 - Failure of a backup run retries with backoff and is surfaced via the
   `Backup` resource status and Prometheus metrics; the repository retains prior
   state, so no data is lost while the remote is unreachable.
