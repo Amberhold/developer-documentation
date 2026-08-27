@@ -4,7 +4,7 @@
 - Date: 2026-08-11
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 3, §3.5; ADR-0001,
-  ADR-0005, ADR-0010, ADR-0011, ADR-0016
+  ADR-0005, ADR-0010, ADR-0011, ADR-0013
 
 ## Context
 
@@ -50,7 +50,7 @@ SMB share management is samba-based, driven by the daemon:
 
 - The file-shares design encodes samba config generation, `smbpasswd` lifecycle,
   and per-grant reload semantics; the symlink target lives on `config/var`
-  (ADR-0001, ADR-0011) and is regenerated, not snapshotted (ADR-0016).
+  (ADR-0001, ADR-0011) and is regenerated, not snapshotted (ADR-0013).
 - Share state is single-sourced in the spec store; samba config is derived state
   (ADR-0002).
 - The SMB controller's generated config is regenerable state on `config/var`,

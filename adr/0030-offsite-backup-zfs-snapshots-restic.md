@@ -5,7 +5,7 @@
 - Amended: 2026-08-27 — repository password now protected at rest inside the OS-disk LUKS container (host-encryption change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 2 (feature 15);
-  ADR-0001, ADR-0006, ADR-0013, ADR-0015, ADR-0017, ADR-0019, ADR-0022, ADR-0031;
+  ADR-0001, ADR-0006, ADR-0013, ADR-0011, ADR-0017, ADR-0019, ADR-0022;
   `backup-restic-snapshots` D1–D6
 
 ## Context
@@ -21,7 +21,7 @@ The read-only squashfs root (ADR-0001) means external binaries must be baked
 into the image and invoked by `core` by shelling out (the smartctl/nerdctl
 pattern); systemd timers are unavailable, so cadence must come from the
 reconciler. The OS-disk spec-store partition already holds encryption keyfiles
-auto-loaded at start (ADR-0013, ADR-0015), establishing the co-located-secret
+auto-loaded at start (ADR-0013, ADR-0011), establishing the co-located-secret
 pattern this decision reuses.
 
 ## Decision
@@ -52,8 +52,8 @@ with file-level restore. **zvols** cannot be mounted as filesystems; they are
 covered by streaming `zfs send <vol>@<snap>` into `restic backup --stdin`.
 
 The **repository password is co-located** on the OS-disk spec-store partition
-and auto-loaded by `core` at start, exactly the ADR-0015 keyfile pattern — no
-new installer or password-recovery UX. With host encryption (ADR-0031), the
+and auto-loaded by `core` at start, exactly the ADR-0011 keyfile pattern — no
+new installer or password-recovery UX. With host encryption (ADR-0011), the
 spec-store partition is inside the OS-disk LUKS2 container, so the repository
 password is protected at rest and auto-loaded only after the container unlocks.
 The recovery boundary is therefore **data-pool loss only**: the repository does
@@ -101,9 +101,9 @@ per snapshot event, `forget --prune` when the retention policy demands.
 - The feature map promotes backup to feature 15; replication
   (`zfs send/receive` to a remote ZFS host) remains deferred.
 - The repository protects against data-pool loss only; OS-disk loss keeps its
-  D1 unrecoverable posture (ADR-0015) — the repository password is lost with
+  D1 unrecoverable posture (ADR-0011) — the repository password is lost with
   the OS disk. At rest it is now protected inside the OS-disk LUKS container
-  (ADR-0031) and auto-loaded only after unlock, matching the encryption keyfiles;
+  (ADR-0011) and auto-loaded only after unlock, matching the encryption keyfiles;
   its D1 recovery-boundary text is unchanged.
 - Failure of a backup run retries with backoff and is surfaced via the
   `Backup` resource status and Prometheus metrics; the repository retains prior

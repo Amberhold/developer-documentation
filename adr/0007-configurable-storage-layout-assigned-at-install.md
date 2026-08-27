@@ -19,7 +19,7 @@ The roles of datasets (`app/images` when the apps feature is in use, and `data`)
 are assigned at install time by the installer, not fixed in the image. Everything
 else — controllers, compose, shares — points at the assigned datasets. System
 config state is excluded by design (resolve-control-plane-gaps D6): the spec
-store and encryption keyfiles live on an OS-disk partition (ADR-0013, ADR-0015)
+store and encryption keyfiles live on an OS-disk partition (ADR-0013, ADR-0011)
 and the `config/var` partition holds logs/audit and generated daemon config
 fragments (ADR-0011, ADR-0016).
 

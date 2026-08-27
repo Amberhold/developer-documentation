@@ -8,15 +8,13 @@
 - [ADR-0005](adr/0005-identity-model-separate-nas-db.md) — identity model (separate NAS DB with optional system/SMB link; NFS host-based access with UID alignment via `idmapd`; app UID allocation)
 - [ADR-0006](adr/0006-updates-as-a-product-feature.md) — updates as a product feature (repo-channel-only delivery; signed images)
 - [ADR-0007](adr/0007-configurable-storage-layout-assigned-at-install.md) — configurable storage layout assigned at install time (`config` role removed — system state on OS-disk partitions; remaining roles `data` + optional `app`)
-- [ADR-0008](adr/0008-prometheus-metrics-for-every-subsystem.md) — Prometheus metrics for every subsystem (OTEL SDK instrumentation; scrape-only hosting, no embedded server; Prometheus as the default exporter)
+- [ADR-0008](adr/0008-observability-otel.md) — observability: OpenTelemetry for all signals (Prometheus always-on exporter; OTLP additive; one `Telemetry` resource; reconcile-loop tracing off by default; journald durable log store)
 - [ADR-0009](adr/0009-nfs-share-management-via-zfs-sharenfs.md) — NFS share management via ZFS `sharenfs` properties
 - [ADR-0010](adr/0010-supported-multi-protocol-access-combos.md) — supported multi-protocol concurrent access combos (app volumes are XOR with network shares; per-path grants with UID alignment)
-- [ADR-0011](adr/0011-dedicated-os-disk-ab-slots.md) — dedicated OS disk for the A/B squashfs slots (layout ESP / slots A+B / spec store + keyfiles / `config/var`; 128–256 GB sizing floor; plain partitions, no snapshots; single point of failure accepted)
+- [ADR-0011](adr/0011-os-disk-layout-encryption.md) — OS disk: layout, encryption, and data-encryption keys (dedicated OS disk; LUKS2-sealed slots + spec store + keyfiles + `config/var`; external-factor boot unlock; keyfiles inside the container)
 - [ADR-0012](adr/0012-web-ui-static-server-in-image.md) — Web-UI as a separate static server baked into the image
-- [ADR-0013](adr/0013-spec-store-on-os-disk-partition.md) — spec store on a persistent OS-disk partition (boot reads spec before pool import; versioned with forward migration; shares the partition with keyfiles)
+- [ADR-0013](adr/0013-os-disk-writable-state.md) — OS disk writable state: spec store + `config/var` (boot reads spec before pool import; versioned spec store; journald logging + audit with rotation/retention)
 - [ADR-0014](adr/0014-network-planes-configurable-at-install.md) — network planes configurable at install (per-interface IP assigned at install)
-- [ADR-0015](adr/0015-encryption-keyfile-headless-unlock.md) — encryption keyfile on the OS-disk spec store partition, headless unlock (OS-disk partitions plain, no LUKS; pools/app datasets encrypted)
-- [ADR-0016](adr/0016-logging-audit-via-journald.md) — logging + audit via journald, forwarded to the OS-disk `config/var` partition (rotation + retention, no snapshots)
 - [ADR-0017](adr/0017-per-controller-reconcile-loops.md) — per-controller reconcile loops over a shared event source (no hard ordering, idempotent retries)
 - [ADR-0018](adr/0018-rbac-fixed-roles-capability-map.md) — RBAC fixed roles with a capability map
 - [ADR-0019](adr/0019-feature-map-aligned-api-resource-model.md) — feature-map-aligned API resource model (with `Schedule` resource)
@@ -25,10 +23,6 @@
 - [ADR-0022](adr/0022-shared-schedule-resource.md) — shared `Schedule` resource for snapshots and scrubs
 - [ADR-0023](adr/0023-smb-share-management-mechanism.md) — SMB share management via samba config on the `config/var` partition, per-user access control (no `sharesmb`)
 - [ADR-0024](adr/0024-pool-vdev-topology-and-disk-replacement.md) — pool/vdev topology (single pool, mirror/raidz1/raidz2, spares, replacement flow)
-- [ADR-0025](adr/0025-telemetry-resource-otlp-export-config.md) — telemetry resource + OTLP export config (per-target TLS modes, additive OTLP, in-process exporters only)
-- [ADR-0026](adr/0026-reconcile-loop-tracing.md) — reconcile-loop tracing (root `reconcile` span + per-controller children, sampling default 0)
-- [ADR-0027](adr/0027-otel-log-export-journald-store.md) — direct per-component OTEL log export with journald as parallel durable store (audit flow preserved)
 - [ADR-0028](adr/0028-tls-management-plane.md) — TLS on the management plane (HTTPS in v1; built-in CA / ACME / manual import trust modes)
 - [ADR-0029](adr/0029-oidc-authentication.md) — OIDC authentication for the Web-UI (single IdP, authorization-code + PKCE, claims-as-roles, JIT NAS account)
 - [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) — off-site backup of ZFS snapshots with restic (event-driven per-snapshot ingestion, per-dataset opt-in, data-pool-loss recovery boundary)
-- [ADR-0031](adr/0031-host-level-encryption.md) — whole-OS-disk LUKS2 encryption with external unlock factors (YubiKey FIDO2 / USB keyfile / recovery passphrase, per-mode unlock policy, initramfs boot integration)
