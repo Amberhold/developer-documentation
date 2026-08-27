@@ -28,3 +28,6 @@
 - [ADR-0025](adr/0025-telemetry-resource-otlp-export-config.md) — telemetry resource + OTLP export config (per-target TLS modes, additive OTLP, in-process exporters only)
 - [ADR-0026](adr/0026-reconcile-loop-tracing.md) — reconcile-loop tracing (root `reconcile` span + per-controller children, sampling default 0)
 - [ADR-0027](adr/0027-otel-log-export-journald-store.md) — direct per-component OTEL log export with journald as parallel durable store (audit flow preserved)
+- [ADR-0028](adr/0028-tls-management-plane.md) — TLS on the management plane (HTTPS in v1; built-in CA / ACME / manual import trust modes)
+- [ADR-0029](adr/0029-oidc-authentication.md) — OIDC authentication for the Web-UI (single IdP, authorization-code + PKCE, claims-as-roles, JIT NAS account)
+- [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) — off-site backup of ZFS snapshots with restic (event-driven per-snapshot ingestion, per-dataset opt-in, data-pool-loss recovery boundary)
