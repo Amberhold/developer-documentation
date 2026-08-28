@@ -192,7 +192,11 @@ direct action paths when the storage change landed; the generic router is one
 pattern resolving the action from the controller map.) Singleton resources
 (e.g. `updates`) have no `{id}` segment. Actions may read spec, may mutate
 **status** (result observable, e.g. scrub status), and never touch desired
-state (ADR-0002). They are audited exactly like spec writes.
+state (ADR-0002) — with one sanctioned exception: the disk **replace** action
+(`storage-slice-completion`, D-S12) converges the pool spec member reference
+through the store's validated update path as part of the substitution, so the
+acknowledged replacement is never persistent immutable-topology drift. They
+are audited exactly like spec writes.
 
 **Rationale:** ADR-0002/contract fix actions as imperative ops outside desired
 state; routing to the owning controller keeps one owner for the resource's
