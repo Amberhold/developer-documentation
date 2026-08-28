@@ -268,7 +268,7 @@ conform by construction.
 The first `core` implementation (`core-skeleton-auth-slice`) confirmed D1–D10
 and recorded its package layout and any deviation:
 
-- **Package layout**: `cmd/core` (entrypoint) plus
+- **Package layout**: `cmd/amberhold-core` (entrypoint, binary `amberhold-core`) plus
   `internal/{app,resource,store,eventbus,controller,runtime,telemetry,
   admission,auth,api,audit}` — the layout open question is settled as derived
   from the design. `app` is the composition root implementing D6.
