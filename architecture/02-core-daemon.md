@@ -121,28 +121,45 @@ status as a resource property).
 ## 7. Spec-store write path (D5) — one serialized writer, versioned snapshots
 
 The spec store is the source of truth (ADR-0002) on the OS-disk partition
-(ADR-0013). Two write flows, both serialized through the store's single writer (a
-mutex-protected append):
+(ADR-0013). Two write flows, both serialized through the store's single writer:
 
 1. **Spec writes**: API admission → RBAC → optimistic concurrency check on
-   `resourceVersion` → append (bump `metadata.generation`, new `resourceVersion`)
-   → publish event → audit.
+   `resourceVersion` → commit as an atomic, fsync'd bbolt transaction (bump
+   `metadata.generation`, new `resourceVersion`) → publish event → audit.
 2. **Status writes**: the owning controller (D4), serialized, coalesced on a short
-   minimum interval to avoid write amplification on busy resources.
+   minimum interval to avoid write amplification on busy resources; they commit
+   through the same bbolt transactions and never bump generation or
+   `resourceVersion`.
 
-The store records a schema version and migrates forward on read; rollback
-restores a prior versioned snapshot (ADR-0013) — the composite-rollback revert
-half (ADR-0002). An in-memory index serves API reads.
+The concrete on-disk format is an **embedded bbolt KV store** (`store.db`, one
+bucket per resource kind, key = resource id, value = JSON envelope). The
+`resourceVersion` ordinal is a `/_meta` revision counter incremented in the
+same transaction as the write, so optimistic concurrency and the commit are
+atomically one operation. Reads are snapshot-consistent bbolt read
+transactions: MVCC means they never block the single writer, so the skeleton's
+in-memory read index was dropped. The store records a schema version in
+`/_meta` and migrates forward on open; rollback restores a prior versioned
+snapshot (ADR-0013) — the composite-rollback revert half (ADR-0002).
+
+**Versioned snapshots** are JSON exports (`snapshot-<schemaVersion>.<n>.json`,
+N generations retained) taken from a single read transaction on the resync
+cadence; they are the rollback export artifact, not the live engine. Restore
+loads a chosen snapshot into the store and requires a `core` restart (startup
+sequence D6 reloads the spec), so rollback is an explicit, audited operation.
 
 **Rationale:** a single writer avoids torn spec/status state and makes optimistic
-concurrency (the contract's `resourceVersion`) coherent. Versioned snapshots are
-the ADR-0013 rollback mechanism. Rejected alternative: an embedded DB
-(SQLite/badger) — heavier dependency and query machinery the store does not need;
-reads are by kind+id (in-memory index), the durable artifact is versioned
-snapshots, not a queryable DB.
+concurrency (the contract's `resourceVersion`) coherent. bbolt is a plain
+embedded KV — the store's `Get/List/Create/Update/Delete` shape maps 1:1 — with
+crash-durable, fsync'd, multi-key-atomic transactions and MVCC reads. Versioned
+JSON snapshots are the ADR-0013 rollback mechanism. Rejected alternatives: etcd
+(1-node Raft for a single-instance appliance, no HA benefit), SQLite (query
+machinery the store does not need), and hardened JSON (whole-file rewrites give
+no multi-key atomicity).
 
-**Note:** the on-disk concrete format (versioned JSON snapshot directories vs an
-embedded KV) is reconsiderable at implementation without changing this approach.
+**Note:** the on-disk concrete format open question (versioned JSON snapshot
+directories vs an embedded KV) is settled at implementation as the embedded KV
+branch, with JSON retained as the versioned-snapshot export format (see the
+`spec-store-bbolt-backend` change and the skeleton notes in §15).
 
 ## 8. Startup sequence (D6)
 
@@ -227,8 +244,8 @@ conform by construction.
 - **Persisted status write amplification** → status writes are coalesced (D5);
   `observedGeneration` exposes staleness rather than masking it.
 - **Single serialized writer as a bottleneck** → spec writes are low-rate admin
-  ops; status writes are coalesced; the in-memory index keeps API reads off the
-  write path.
+  ops; status writes are coalesced; MVCC bbolt read transactions keep API reads
+  off the write path.
 - **Shell-out failure mid-mutation** → idempotent reconcile converges on retry;
   audit + status `Error`/`Degraded` with reason make it observable.
 - **No HA** → deliberate v1 constraint; the in-process event source assumes a
@@ -239,7 +256,9 @@ conform by construction.
 - **Resync interval, backoff caps, and status-coalescing window defaults** —
   tunable during implementation; they do not change the approach.
 - **Spec-store on-disk concrete format** (versioned JSON snapshot dirs vs
-  embedded KV) — implementation detail; revisit at skeleton time.
+  embedded KV) — settled at implementation as the embedded KV branch (bbolt,
+  `spec-store-bbolt-backend` change); JSON is retained as the versioned-snapshot
+  export/rollback format.
 - **Go package layout** inside `core/` (e.g.
   `internal/{store,eventbus,controller,runtime,api,admission,otel}`) — settled
   when the skeleton change is written, derived from this design.
@@ -258,10 +277,10 @@ and recorded its package layout and any deviation:
   a backing service — no controller owns multiple kinds.
 - **D5 event publication**: the spec store publishes events through a
   `Publisher` interface wired to the in-process bus at startup; publication
-  happens after the snapshot is committed and is best-effort (a saturated
-  subscriber drops the event, covered by the D3 resync). The store holds
-  immutable snapshots in its index; reads clone, so no goroutine aliases a
-  mutable indexed resource.
+  happens after the write transaction is committed and is best-effort (a
+  saturated subscriber drops the event, covered by the D3 resync). Reads return
+  fresh copies from bbolt read transactions, so no goroutine aliases a stored
+  resource.
 - **D3 serialization**: each controller drains a single queue; events, the
   periodic resync marker, and backoff retries all funnel through that one
   consumer, so a controller's reconciles are strictly serialized (no concurrent
@@ -275,6 +294,12 @@ and recorded its package layout and any deviation:
   subsystem-scoped `slog` logger, and a no-op tracer (sampling zero, no OTLP
   targets — the ADR-0008 default). The D8 handle resolution is in place; the
   OTLP exporters land with the telemetry controller change.
-- **On-disk store format**: the skeleton writes one versioned JSON snapshot
-  (`snapshot.json`) with the schema version; the format open question remains
-  reconsiderable, but forward migration on read is implemented (ADR-0013).
+- **On-disk store format** (updated by `spec-store-bbolt-backend`): the live
+  engine is an embedded bbolt KV store (`store.db`) with the schema version and
+  the `resourceVersion` ordinal counter in a `/_meta` bucket; forward migration
+  on open and rejection of newer schemas are implemented (ADR-0013). The
+  skeleton's `snapshot.json` engine was never built or shipped, so no legacy
+  data or import path exists. Versioned JSON snapshots
+  (`snapshot-<schemaVersion>.<n>.json`, N=5 retained, exported from read
+  transactions on the resync cadence) are the rollback export artifact, and
+  restore requires a `core` restart (D6).
