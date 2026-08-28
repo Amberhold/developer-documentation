@@ -184,12 +184,15 @@ alternative: API first, controllers later (first requests would observe
 
 ## 9. Action endpoints (D7) — routed to the owning controller, never a spec mutation
 
-The runtime routes `/v1/<kind>/{id}/actions/<name>` (e.g. `scrub`, `replace`,
-`trigger`, `rollback`) to the handler it looks up from the owning controller's
-`Actions()` map (D1). Singleton resources (e.g. `updates`) have no `{id}`
-segment — the path is `/v1/<kind>/actions/<name>`. Actions may read spec, may
-mutate **status** (result observable, e.g. scrub status), and never touch
-desired state (ADR-0002). They are audited exactly like spec writes.
+The runtime routes `POST /v1/<kind>/{id}/<action>` — the contract shape,
+e.g. `POST /v1/pools/{id}/scrub`, `POST /v1/disks/{id}/replace` — to the
+handler it looks up from the owning controller's `Actions()` map (D1). (The
+skeleton's initial `.../actions/<name>` form was superseded by the contract's
+direct action paths when the storage change landed; the generic router is one
+pattern resolving the action from the controller map.) Singleton resources
+(e.g. `updates`) have no `{id}` segment. Actions may read spec, may mutate
+**status** (result observable, e.g. scrub status), and never touch desired
+state (ADR-0002). They are audited exactly like spec writes.
 
 **Rationale:** ADR-0002/contract fix actions as imperative ops outside desired
 state; routing to the owning controller keeps one owner for the resource's

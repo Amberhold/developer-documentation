@@ -23,7 +23,8 @@ copyright = "Copyright &copy; 2026 The Amberhold Team"
 [project.theme]
 # variant = "classic"
 # custom_dir = "overrides"
-# favicon = "images/favicon.png"
+favicon = "images/logo.png"
+logo = "images/logo.png"
 language = "en"
 features = [
   "announce.dismiss",

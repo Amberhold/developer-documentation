@@ -1,6 +1,8 @@
 # NAS Documentation
 
 - [Architecture](architecture/01-os-feature-map.md) — target feature map and architecture decisions (discovery-phase capture).
+- [Core daemon](architecture/02-core-daemon.md) — framework-first controller runtime (D1–D10), startup sequence, action routing (ADR-0031).
+- [Storage controller](architecture/03-storage-controller.md) — the data-plane anchor: host facade, Disk/Pool controllers, scrub action (ADR-0024, ADR-0021, ADR-0011).
 - [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md) — read-only squashfs root with A/B boot (`core` in the image, no host-file writes under `/`, RO-root writable-config convention, standard A/B tooling)
 - [ADR-0002](adr/0002-declarative-desired-state-api-reconciler-core.md) — declarative desired-state API with reconciler core (composite rollback; imperative action endpoints)
 - [ADR-0003](adr/0003-nvmet-kernel-nvme-of-target-serve-only.md) — nvmet kernel NVMe-oF target (serve-only, NQN allowlist)

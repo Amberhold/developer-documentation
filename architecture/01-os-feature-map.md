@@ -136,10 +136,11 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
                   │ desired-state CRUD + action endpoints (declarative + ops)
             ┌──────▼───────────────────────────────┐
             │  core daemon                          │
-            │   spec store (source of truth)        │   on the OS disk, not a
-            │   └─ reconciler loop (wanted≠actual)  │   pool (ADR-0013);
-            │        ├─ ZFS controller      │ zpool/zfs (go-zfs)    per-controller
-            │        ├─ SMB controller      │ samba + smbpasswd     loops over a
+             │   spec store (source of truth)        │   on the OS disk, not a
+             │   └─ reconciler loop (wanted≠actual)  │   pool (ADR-0013);
+             │        ├─ Storage ctlr     │ zpool/zfs/smartctl  per-controller
+             │        │                   │   shell-outs (ADR-0024)
+             │        ├─ SMB controller      │ samba + smbpasswd     loops over a
             │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009) shared event
             │        ├─ NVMe-oF controller  │ configfs (nvmet, NQN allowlist) source
             │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
@@ -150,6 +151,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
             └──────────────────────────────────────┘
     framework-first controller runtime: D1–D10 mechanics, startup sequence,
     action routing → docs/architecture/02-core-daemon.md (ADR-0031)
+    storage data-plane anchor: host facade + Disk/Pool controllers →
+    docs/architecture/03-storage-controller.md (ADR-0024, ADR-0021, ADR-0011)
 ```
 
 ## 5. Key flows
