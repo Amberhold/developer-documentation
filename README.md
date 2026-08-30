@@ -1,8 +1,34 @@
-# NAS Documentation
+<!-- Source brand asset: copy of logo/logo_with_text.png from the ai-harness meta-repo. Re-copy whenever the kit changes. -->
 
-- [Architecture](architecture/01-os-feature-map.md) — target feature map and architecture decisions (discovery-phase capture).
+![Amberhold](images/logo-with-text.png)
+
+# Amberhold
+
+*A NAS operating system for self-hosted storage appliances — every capability managed through a web UI and a first-class API.*
+
+Amberhold is a NAS operating system that puts the whole appliance behind one management surface. NVMe-oF volumes, ZFS pools, container workloads, identity and access control, and observability are all driven declaratively through a web UI and a contract-first API — no SSH required for day-to-day operations.
+
+## Capabilities
+
+- **NVMe-oF volumes** — high-performance block storage over NVMe over Fabrics
+- **ZFS** — pooled storage with snapshots, replication, encryption, and compression
+- **containerd** — run apps as Docker Compose workloads on the appliance
+- **RBAC** — fine-grained roles and permissions for users and groups
+- **Web UI + API** — a full management surface, contract-first
+- **Prometheus metrics** — built-in observability endpoint for all subsystems
+
+## Documentation map
+
+We are in a discovery phase: the system is designed here, in this documentation, before any code is written. All design and architecture work lives in the `docs` repo, captured as architecture docs and architecture decision records (ADRs).
+
+### Architecture
+
+- [Feature map & architecture](architecture/01-os-feature-map.md) — target feature map and architecture decisions (discovery-phase capture).
 - [Core daemon](architecture/02-core-daemon.md) — framework-first controller runtime (D1–D10), startup sequence, action routing (ADR-0031).
 - [Storage controller](architecture/03-storage-controller.md) — the data-plane anchor: host facade, Disk/Pool controllers, scrub action (ADR-0024, ADR-0021, ADR-0011).
+
+### Architecture decision records
+
 - [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md) — read-only squashfs root with A/B boot (`core` in the image, no host-file writes under `/`, RO-root writable-config convention, standard A/B tooling)
 - [ADR-0002](adr/0002-declarative-desired-state-api-reconciler-core.md) — declarative desired-state API with reconciler core (composite rollback; imperative action endpoints)
 - [ADR-0003](adr/0003-nvmet-kernel-nvme-of-target-serve-only.md) — nvmet kernel NVMe-oF target (serve-only, NQN allowlist)
@@ -28,3 +54,4 @@
 - [ADR-0028](adr/0028-tls-management-plane.md) — TLS on the management plane (HTTPS in v1; built-in CA / ACME / manual import trust modes)
 - [ADR-0029](adr/0029-oidc-authentication.md) — OIDC authentication for the Web-UI (single IdP, authorization-code + PKCE, claims-as-roles, JIT NAS account)
 - [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) — off-site backup of ZFS snapshots with restic (event-driven per-snapshot ingestion, per-dataset opt-in, data-pool-loss recovery boundary)
+- [ADR-0031](adr/0031-core-daemon-controller-runtime-and-startup-sequence.md) — core daemon controller runtime and startup sequence (framework-first runtime, D1–D10)

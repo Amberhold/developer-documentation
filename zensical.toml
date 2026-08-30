@@ -12,10 +12,42 @@ copyright = "Copyright &copy; 2026 The Amberhold Team"
 # repo_name = "user/repo"
 # edit_uri = "edit/main/docs/"
 
-# nav = [
-#   { "Get started" = "index.md" },
-#   { "Markdown in 5min" = "markdown.md" },
-# ]
+nav = [
+  { "Intro" = "README.md" },
+  { "Architecture" = [
+    { "Feature map" = "architecture/01-os-feature-map.md" },
+    { "Core daemon" = "architecture/02-core-daemon.md" },
+    { "Storage controller" = "architecture/03-storage-controller.md" },
+  ] },
+  { "Architecture decision records" = [
+    { "ADR-0001: Read-only squashfs root with A/B boot" = "adr/0001-read-only-squashfs-root-ab-boot.md" },
+    { "ADR-0002: Declarative desired-state API with reconciler core" = "adr/0002-declarative-desired-state-api-reconciler-core.md" },
+    { "ADR-0003: nvmet kernel NVMe-oF target (serve-only)" = "adr/0003-nvmet-kernel-nvme-of-target-serve-only.md" },
+    { "ADR-0004: ZFS-backed container volumes with full docker-compose" = "adr/0004-zfs-backed-container-volumes-full-docker-compose.md" },
+    { "ADR-0005: Identity model (separate NAS DB with optional system/SMB link)" = "adr/0005-identity-model-separate-nas-db.md" },
+    { "ADR-0006: Updates as a product feature" = "adr/0006-updates-as-a-product-feature.md" },
+    { "ADR-0007: Configurable storage layout assigned at install time" = "adr/0007-configurable-storage-layout-assigned-at-install.md" },
+    { "ADR-0008: Observability — OpenTelemetry instrumentation" = "adr/0008-observability-otel.md" },
+    { "ADR-0009: NFS share management via ZFS `sharenfs` properties" = "adr/0009-nfs-share-management-via-zfs-sharenfs.md" },
+    { "ADR-0010: Supported multi-protocol concurrent access combos" = "adr/0010-supported-multi-protocol-access-combos.md" },
+    { "ADR-0011: OS disk — layout, encryption, and data encryption keys" = "adr/0011-os-disk-layout-encryption.md" },
+    { "ADR-0012: Web-UI as a separate static server baked into the image" = "adr/0012-web-ui-static-server-in-image.md" },
+    { "ADR-0013: OS disk writable state — spec store and `config/var`" = "adr/0013-os-disk-writable-state.md" },
+    { "ADR-0014: Network planes configurable at install" = "adr/0014-network-planes-configurable-at-install.md" },
+    { "ADR-0017: Per-controller reconcile loops over a shared event source" = "adr/0017-per-controller-reconcile-loops.md" },
+    { "ADR-0018: RBAC — fixed roles with a capability map" = "adr/0018-rbac-fixed-roles-capability-map.md" },
+    { "ADR-0019: Feature-map-aligned API resource model" = "adr/0019-feature-map-aligned-api-resource-model.md" },
+    { "ADR-0020: Authentication — sessions, API tokens, Argon2id" = "adr/0020-authentication-session-token-argon2.md" },
+    { "ADR-0021: Disk health — SMART, metrics and status" = "adr/0021-disk-health-smart-scrub-schedule.md" },
+    { "ADR-0022: Shared `Schedule` resource for snapshots and scrubs" = "adr/0022-shared-schedule-resource.md" },
+    { "ADR-0023: SMB share management — samba config, per-user access control" = "adr/0023-smb-share-management-mechanism.md" },
+    { "ADR-0024: Pool/vdev topology and disk replacement" = "adr/0024-pool-vdev-topology-and-disk-replacement.md" },
+    { "ADR-0028: TLS on the management plane" = "adr/0028-tls-management-plane.md" },
+    { "ADR-0029: OIDC authentication for the Web-UI" = "adr/0029-oidc-authentication.md" },
+    { "ADR-0030: Off-site backup of ZFS snapshots with restic" = "adr/0030-offsite-backup-zfs-snapshots-restic.md" },
+    { "ADR-0031: Core daemon controller runtime and startup sequence" = "adr/0031-core-daemon-controller-runtime-and-startup-sequence.md" },
+  ] },
+]
 
 # extra_css = ["stylesheets/extra.css"]
 # extra_javascript = ["javascripts/extra.js"]
