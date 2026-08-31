@@ -160,7 +160,11 @@ attr-file alternative for subsystem binding — the `addr_*` attrs configure the
 port *address* (installer-owned, ADR-0014), not which subsystems it serves.
 The controller shape is unaffected either way: the variant is isolated behind
 `NvmetHost.BindPort`, so a kernel that wanted an attr write would change one
-facade method, never the controller.
+facade method, never the controller. The facade creates the link with a
+**relative** target (`../../../subsystems/<nqn>` from `ports/<portid>/subsystems`);
+configfs resolves the link target at creation, and relative port-binding links
+are used in the wild, so this resolves to the same directory as the absolute
+form shown in the guides.
 
 ### D-B4: one fixed nvmet port, bound at install
 
