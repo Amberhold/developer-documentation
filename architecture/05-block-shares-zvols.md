@@ -288,3 +288,19 @@ running subsystem depends on nvmet exports in v1.
   impact.
 - CHAP authentication mechanics (secrets storage, per-export rotation) — a
   future change; v1 rejects `chap` at the boundary (D-B5).
+
+## 9. Follow-ups (tracked, not fixed here)
+
+- **`Dataset` name-immutability guard** — the pre-existing `Dataset`
+  controller has the same single-pass blind spot this change closed for
+  `Zvol` (`dataset.go`: the `name_immutable` status pins `Wanted` to the
+  violating spec, so the guard fires once and the next resync can
+  rename-by-recreate; `ValidateDatasetSpec` has no store-aware immutability
+  check). Scoping to `Zvol` here is defensible — a zvol rename would orphan an
+  nvmet export, a dataset rename orphans none — but the fix is the now
+  established one-line pattern (`statusFor(req.Resource.Status.Wanted, ...)`),
+  and it should land as a follow-up so the Dataset surface cannot silently
+  recreate on rename.
+- **NVMe-oF connection tracking** — `amberhold.shares.block.connections` is
+  emitted as zero; per-export connection counts are not read from the kernel
+  in v1.
