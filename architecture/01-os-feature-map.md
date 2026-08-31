@@ -54,7 +54,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011); create the OS-disk LUKS2 container and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0013). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0008); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
-| 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0011 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern) |
+| 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0011 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern). Controller design in `docs/architecture/06-backup-controller.md` (D-BK1–D-BK8) |
 
 ### Deferred areas (future paths, out of v1 scope)
 
@@ -159,6 +159,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
     docs/architecture/04-shares-controller.md (ADR-0023, ADR-0009, ADR-0005)
     block shares + zvols: Zvol + BlockShare controllers, nvmet configfs →
     docs/architecture/05-block-shares-zvols.md (ADR-0003)
+    off-site backup: Backup controller, restic + zfs-send/mount facades →
+    docs/architecture/06-backup-controller.md (ADR-0030)
 ```
 
 ## 5. Key flows

@@ -18,6 +18,9 @@ nav = [
     { "Feature map" = "architecture/01-os-feature-map.md" },
     { "Core daemon" = "architecture/02-core-daemon.md" },
     { "Storage controller" = "architecture/03-storage-controller.md" },
+    { "Shares controller" = "architecture/04-shares-controller.md" },
+    { "Block shares & zvols" = "architecture/05-block-shares-zvols.md" },
+    { "Backup controller" = "architecture/06-backup-controller.md" },
   ] },
   { "Architecture decision records" = [
     { "ADR-0001: Read-only squashfs root with A/B boot" = "adr/0001-read-only-squashfs-root-ab-boot.md" },
