@@ -19,7 +19,7 @@ The supported exposure matrix must be explicit rather than accidental.
   combination; both ride on the same dataset properties (`sharesmb` + `sharenfs`).
   Access control is per-path grants with UID alignment (resolve-control-plane-gaps
   D8): NFS grants gate hosts, SMB grants gate users, and UIDs stay consistent via
-  the identity controller.
+  the identity service.
 - **NVMe-oF: dedicated zvols only** — a dataset's data is never exported over
   NVMe-oF; block exports are dedicated zvols (ADR-0003) and are not concurrently
   served over a file protocol.
@@ -44,5 +44,5 @@ The supported exposure matrix must be explicit rather than accidental.
 - NFS `sharenfs` controls which hosts may access; SMB `sharesmb`/passdb controls
   which users may access. The two mechanisms gate different access paths and
   there is no cross-protocol intersection — file ownership and UIDs are kept
-  coherent by the identity controller (ADR-0005), so a client's view of ownership
+  coherent by the identity service (ADR-0005), so a client's view of ownership
   matches regardless of path. Documented for the `file-shares` design.

@@ -140,19 +140,21 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
              │   └─ reconciler loop (wanted≠actual)  │   pool (ADR-0013);
              │        ├─ Storage ctlr     │ zpool/zfs/smartctl  per-controller
              │        │                   │   shell-outs (ADR-0024)
-             │        ├─ SMB controller      │ samba + smbpasswd     loops over a
-            │        ├─ NFS controller      │ zfs set sharenfs (ADR-0009) shared event
-            │        ├─ NVMe-oF controller  │ configfs (nvmet, NQN allowlist) source
-            │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
-            │        ├─ Identity controller │ user DB ↔ UID ↔ samba (app UIDs too)
-            │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
-            │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
-            │        └─ Update controller   │ A/B slot swap + reboot
+             │        ├─ FileShare ctlr   │ SMB backend → samba+tdbsam (ADR-0023)  loops over a
+             │        │                   │ NFS backend → zfs set sharenfs (ADR-0009) shared event
+             │        ├─ NVMe-oF controller  │ configfs (nvmet, NQN allowlist) source
+             │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
+             │        ├─ Identity service  │ UID ledger → spec store + tdbsam (app UIDs too)
+             │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
+             │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
+             │        └─ Update controller   │ A/B slot swap + reboot
             └──────────────────────────────────────┘
     framework-first controller runtime: D1–D10 mechanics, startup sequence,
     action routing → docs/architecture/02-core-daemon.md (ADR-0031)
     storage data-plane anchor: host facade + Disk/Pool controllers →
     docs/architecture/03-storage-controller.md (ADR-0024, ADR-0021, ADR-0011)
+    shares slice: one FileShare controller + SMB/NFS mechanism backends →
+    docs/architecture/04-shares-controller.md (ADR-0023, ADR-0009, ADR-0005)
 ```
 
 ## 5. Key flows
@@ -161,8 +163,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
 ```
 NAS user (API/UI/CLI)
    │  share granted
-   ├──► system account + UID   ──► POSIX owner on the dataset
-   └──► samba passdb entry     ──► SMB auth
+   ├──► allocated UID (identity service) ──► POSIX owner on the dataset
+   └──► samba tdbsam entry          ──► SMB auth
 ```
 
 ### 5.2 A/B update

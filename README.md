@@ -12,6 +12,7 @@ Amberhold is a NAS operating system that puts the whole appliance behind one man
 
 - **NVMe-oF volumes** — high-performance block storage over NVMe over Fabrics
 - **ZFS** — pooled storage with snapshots, replication, encryption, and compression
+- **SMB + NFS file shares** — share datasets over the network; per-user SMB grants and NFS host allowlists
 - **containerd** — run apps as Docker Compose workloads on the appliance
 - **RBAC** — fine-grained roles and permissions for users and groups
 - **Web UI + API** — a full management surface, contract-first
@@ -26,6 +27,7 @@ We are in a discovery phase: the system is designed here, in this documentation,
 - [Feature map & architecture](architecture/01-os-feature-map.md) — target feature map and architecture decisions (discovery-phase capture).
 - [Core daemon](architecture/02-core-daemon.md) — framework-first controller runtime (D1–D10), startup sequence, action routing (ADR-0031).
 - [Storage controller](architecture/03-storage-controller.md) — the data-plane anchor: host facade, Disk/Pool controllers, scrub action (ADR-0024, ADR-0021, ADR-0011).
+- [Shares controller](architecture/04-shares-controller.md) — one `FileShare` controller with SMB/NFS mechanism backends + the identity UID service (ADR-0023, ADR-0009, ADR-0005).
 
 ### Architecture decision records
 

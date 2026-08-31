@@ -35,7 +35,7 @@ SMB share management is samba-based, driven by the daemon:
   split across samba config and ZFS properties.
 - NFS sharing of the same dataset (ADR-0010 supported combo) continues to use
   `sharenfs` (ADR-0009); the two mechanisms gate different access paths and are
-  kept coherent by the identity controller's UID allocation (ADR-0005).
+  kept coherent by the identity service's UID allocation (ADR-0005).
 
 ## Alternatives considered
 

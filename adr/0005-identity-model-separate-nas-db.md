@@ -31,12 +31,17 @@ link materialized on first successful OIDC login (ADR-0029).
 
 - "Create a share user" implies: NAS user + optional system UID + optional samba
   passdb entry.
-- The Identity controller owns the user DB ↔ UID ↔ samba mapping and keeps the
-  materialized system/SMB link consistent with the NAS user record. It also owns
-  the JIT-created OIDC subject link (ADR-0029), allocating the UID and
-  materializing the host link on first federated login.
-- UIDs are also allocated to app stacks (ADR-0004): the controller owns a single
-  UID allocation space shared by users and apps, so POSIX ownership stays
+- The identity **service** owns the UID allocation ledger — the user DB ↔ UID ↔
+  samba mapping — and keeps the materialized system/SMB link consistent with the
+  NAS user record. It is a service, not a D1 controller: `status.uid` lives on
+  the `User` resource, whose owner is the `User` controller (single status
+  writer, D4), so the ledger is injected into the `User` controller (allocate
+  on create, reclaim on delete) and into consumers that resolve a linked user's
+  UID (the `FileShare` controller). It also owns the JIT-created OIDC subject
+  link (ADR-0029), allocating the UID and materializing the host link on first
+  federated login.
+- UIDs are also allocated to app stacks (ADR-0004): the identity service owns a
+  single UID allocation space shared by users and apps, so POSIX ownership stays
   consistent across shares and app datasets (resolve-control-plane-gaps D9).
 - RBAC is enforced at API admission (ADR-0002); host accounts are derived from,
   never the source of, NAS identity.
@@ -45,5 +50,5 @@ link materialized on first successful OIDC login (ADR-0029).
   `sharenfs`, ADR-0009); the NAS user's UID is the dataset owner, and clients map
   their client-side UID to that NAS UID to see correct file ownership. UID
   alignment is policy: NFSv4 `idmapd` performs domain mapping so mismatched
-  client UIDs still resolve to the NAS UID. The identity controller allocates
+  client UIDs still resolve to the NAS UID. The identity service allocates
   UIDs so NFS and SMB agree on the same UID for a NAS user.

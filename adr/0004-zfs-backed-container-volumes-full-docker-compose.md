@@ -37,6 +37,6 @@ storage semantics (e.g. databases).
 - The Apps controller must map compose volumes to ZFS datasets by default, with
   the zvol escape hatch documented per app (ADR-0010 governs concurrent block
   exposure).
-- Each app stack runs as a dedicated UID allocated by the identity controller
+- Each app stack runs as a dedicated UID allocated by the identity service
   (ADR-0005; resolve-control-plane-gaps D9); that UID owns the stack's
   dataset(s), so app data ownership is derived identity, never root by default.
