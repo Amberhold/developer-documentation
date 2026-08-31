@@ -28,6 +28,7 @@ We are in a discovery phase: the system is designed here, in this documentation,
 - [Core daemon](architecture/02-core-daemon.md) — framework-first controller runtime (D1–D10), startup sequence, action routing (ADR-0031).
 - [Storage controller](architecture/03-storage-controller.md) — the data-plane anchor: host facade, Disk/Pool controllers, scrub action (ADR-0024, ADR-0021, ADR-0011).
 - [Shares controller](architecture/04-shares-controller.md) — one `FileShare` controller with SMB/NFS mechanism backends + the identity UID service (ADR-0023, ADR-0009, ADR-0005).
+- [Block shares & zvols](architecture/05-block-shares-zvols.md) — the `Zvol` and `BlockShare` controllers completing the data plane: nvmet configfs exports, NQN allowlists, `allow_any_host` never (ADR-0003, ADR-0014).
 
 ### Architecture decision records
 

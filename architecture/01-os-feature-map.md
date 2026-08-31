@@ -139,11 +139,13 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
              │   spec store (source of truth)        │   on the OS disk, not a
              │   └─ reconciler loop (wanted≠actual)  │   pool (ADR-0013);
              │        ├─ Storage ctlr     │ zpool/zfs/smartctl  per-controller
-             │        │                   │   shell-outs (ADR-0024)
+             │        │   └─ Zvol ctlr    │ zfs create -V / destroy     shell-outs
+             │        │                   │                            (ADR-0024)
              │        ├─ FileShare ctlr   │ SMB backend → samba+tdbsam (ADR-0023)  loops over a
              │        │                   │ NFS backend → zfs set sharenfs (ADR-0009) shared event
-             │        ├─ NVMe-oF controller  │ configfs (nvmet, NQN allowlist) source
-             │        ├─ Apps controller     │ nerdctl compose → containerd  (ADR-0017)
+             │        ├─ BlockShare ctlr    │ configfs (nvmet, NQN allowlist, source
+             │        │                     │ allow_any_host never)           (ADR-0017)
+             │        ├─ Apps controller     │ nerdctl compose → containerd
              │        ├─ Identity service  │ UID ledger → spec store + tdbsam (app UIDs too)
              │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
              │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
@@ -155,6 +157,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
     docs/architecture/03-storage-controller.md (ADR-0024, ADR-0021, ADR-0011)
     shares slice: one FileShare controller + SMB/NFS mechanism backends →
     docs/architecture/04-shares-controller.md (ADR-0023, ADR-0009, ADR-0005)
+    block shares + zvols: Zvol + BlockShare controllers, nvmet configfs →
+    docs/architecture/05-block-shares-zvols.md (ADR-0003)
 ```
 
 ## 5. Key flows
