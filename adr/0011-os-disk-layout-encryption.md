@@ -4,10 +4,13 @@
 - Date: 2026-08-10
 - Amended: 2026-08-27 — OS disk is now LUKS2-encrypted, keyfiles inside the
   container (host-encryption change)
+- Amended: 2026-09-01 — OS disk may be a 2-disk mdadm RAID-1 mirror under the
+  LUKS container, with dual-ESP redundancy (os-disk-redundancy change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, §3.7, feature 2,
   feature 12; ADR-0001, ADR-0006, ADR-0007, ADR-0013 (writable state),
-  ADR-0030; `host-level-encryption` change
+  ADR-0021 (disk health covers OS mirror members), ADR-0024 (OS-member
+  replacement), ADR-0030; `host-level-encryption`, `os-disk-redundancy` changes
 
 > Consolidates the former ADR-0011 (dedicated OS disk + A/B slots), ADR-0031
 > (whole-OS-disk LUKS2 encryption with external factors), and ADR-0015 (data
@@ -39,6 +42,20 @@ two persistent partitions), so boot never depends on pool import. Only the `data
 (and optional `app`) roles are configurable per ADR-0007; system config state is
 fixed on this disk, not a pool. There are no fs-level snapshots on the OS disk.
 
+### Mirror option
+
+The dedicated OS disk **may** be a **2-disk mdadm RAID-1 mirror** (`md0`) chosen
+at install time (ADR-0007 pattern); a single OS disk remains the default and is
+fully supported. The LUKS2 container sits on the array, so the one-container /
+one-unlock-event / FIDO2-factor story is unchanged. Each mirror member carries its
+own ESP with the bootloader and per-slot kernel+initramfs; the ESPs are duplicated
+(not mirrored — the bootloader cannot read an mdadm array) and kept in sync by the
+A/B tooling (ADR-0001). The initramfs assembles `md0` before unlock and boots
+degraded with one member missing. The mirror is block-layer only — ZFS stays
+data-only and the content layer (squashfs A/B, spec store, `config/var`) is
+identical to a single-disk install. Sizing for a mirrored install doubles to two
+disks in the 128–256 GB floor range.
+
 ### Layout and sealing
 
 The entire post-ESP OS disk is sealed in a **single LUKS2 container** — A/B
@@ -57,6 +74,23 @@ path.
 | slot A (RO sqfs) | slot B (RO sqfs) | spec store + keyfiles | config/var |
 +-------------------------------------------------------------------------+
 ```
+
+When mirrored, the ESP line above is duplicated per member and the container line
+moves onto the `md0` array:
+
+```
+member 1: +--- ESP (plain) ---+   member 2: +--- ESP (plain) ---+
+          | bootloader|slotA/B |              | bootloader|slotA/B |
+          +---------------------+             +---------------------+
+                 +---- md0 (mdadm RAID-1, LUKS2 container on top) ----+
+                 | slot A (RO sqfs) | slot B (RO sqfs) | spec store | config/var |
+                 +----------------------------------------------------------+
+```
+
+Both ESPs carry the same bootloader + per-slot kernel+initramfs and are kept in
+sync by the A/B tooling (ADR-0001, ADR-0006); the firmware tries the surviving
+member's ESP. The initramfs assembles `md0` degraded with one member missing,
+unlocks the single container, and mounts the active slot.
 
 - **Boot chain (A/B-at-ESP + unlock-then-mount)**: kernel + initramfs live per
   slot on the plain ESP. The bootloader selects the active slot's kernel+initramfs
@@ -126,9 +160,12 @@ theft.
 - The installer and hardware planning must account for a dedicated OS disk
   (feature 12, `installer`), including a 128–256 GB sizing floor for slots + spec
   store + `config/var`, plus the LUKS container overhead and per-slot
-  kernels/initramfs on the ESP. The installer creates the container and enrolls
-  initial factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) at first
-  boot.
+  kernels/initramfs on the ESP. A mirrored install needs **two** disks in that
+  floor range (one per member) plus an ESP per member; the installer sizing check
+  verifies the pair. The installer creates the container and enrolls initial
+  factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) at first boot, and
+  for a mirrored install partitions both disks, creates the `md0` array, and
+  creates the container on the array.
 - The bootloader selects the active slot at the ESP level — A/B selection and
   rollback operate on the per-slot kernel+initramfs and never touch pools; only
   mounting the active rootfs requires the unlock. The A/B tooling candidate must
@@ -147,13 +184,16 @@ theft.
   until boot completes; once booted, `core` records the unlock event (factor kind,
   success/failure) and exposes a host lock-status gauge via resource status and
   Prometheus metrics (ADR-0008).
-- The OS disk is a single point of failure: it holds slots, the bootloader, the
-  spec store + keys, and `config/var` — all inside the LUKS2 container except the
-  ESP. OS-disk loss loses keys, spec store, repository password, and data. Losing
-  the OS disk means losing access to encrypted data; the reinstall + `zpool import`
-  path (ADR-0013) recovers unencrypted data only. Factor loss (not OS-disk loss) is
-  recoverable via the recovery passphrase. Redundancy for the OS disk is accepted
-  as out of scope for v1.
+- A single OS disk is a single point of failure: it holds slots, the bootloader,
+  the spec store + keys, and `config/var` — all inside the LUKS2 container except
+  the ESP. OS-disk loss loses keys, spec store, repository password, and data.
+  Losing the OS disk means losing access to encrypted data; the reinstall +
+  `zpool import` path (ADR-0013) recovers unencrypted data only. Factor loss (not
+  OS-disk loss) is recoverable via the recovery passphrase. A mirrored install
+  removes the single-member SPOF: one member death keeps the machine up and keeps
+  encrypted data accessible (degraded boot from the surviving ESP + array),
+  with an imperative replacement action to rebuild the mirror. Both members
+  dying together still hits the recovery path above.
 - The restic repository password (ADR-0030) lives on the spec-store partition
   inside the container and is auto-loaded only after unlock; its recovery boundary
   is unchanged.

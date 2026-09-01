@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-08-10
+- Amended: 2026-09-01 — update flow keeps both OS-mirror ESPs in sync before
+  activation (os-disk-redundancy change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.6, decision 6; ADR-0001
 
@@ -29,7 +31,11 @@ no manual image-upload path (resolve-architecture-gaps D8).
 ## Consequences
 
 - An update flow with a reboot in the middle: stage to slot B, set bootenv,
-  reboot, boot-fail detection, manual and automatic rollback paths.
+  reboot, boot-fail detection, manual and automatic rollback paths. When the OS
+  disk is mirrored (ADR-0011), staging writes slot B's kernel+initramfs to
+  **both** member ESPs and the update is activated only after both ESPs carry the
+  same per-slot content (ADR-0001 dual-ESP constraint); boot-fail rollback falls
+  to the other slot's kernel+initramfs on whichever ESP survives.
 - Update status (progress, active slot, staged slot) is observable via API/UI and
   Prometheus metrics (ADR-0008).
 - `infra` image builds and the update payload are a first-class part of the

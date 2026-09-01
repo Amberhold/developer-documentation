@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-08-11
+- Amended: 2026-09-01 — OS mirror member replacement reuses the replacement flow
+  (os-disk-redundancy change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 11; ADR-0002,
   ADR-0007, ADR-0019, ADR-0021
@@ -34,6 +36,14 @@ minimal set:
   as desired state; replacement mutates actual state, not desired state.
 - **Layout mutation post-install** is out of scope: a vdev or pool layout change
   after install is migration work (ADR-0007 consequence), not a routine action.
+- **OS mirror member replacement** (ADR-0011, when the OS disk is mirrored) uses
+  the same imperative-action pattern: the admin swaps a new disk in place of a
+  failed OS member and issues the replacement action; the storage controller runs
+  swap + `mdadm --add` + resync, and the `disks` status (ADR-0019) plus metrics
+  (ADR-0021) track resync progress until the array returns to `optimal`. OS
+  mirror members remain non-assignable to data pools throughout — this flow
+  never makes them data disks. Unlike `zpool replace`, this action is a swap +
+  rebuild (mdadm), not an online replace.
 
 ## Alternatives considered
 
@@ -52,5 +62,8 @@ minimal set:
 - Disk health (ADR-0021) and replacement share the `disks` resource status; a
   failed disk with no spare surfaces as degraded pool status until manual
   replacement.
+- OS mirror member replacement (ADR-0011) reuses the same imperative flow —
+  swap + `mdadm --add` + resync — tracked in the `disks` status and metrics
+  (ADR-0021); OS members stay non-assignable and never enter pool membership.
 - The storage change decides only v1 default pool/vdev parameters (e.g. ashift,
   record size, quota defaults); the supported topology set is fixed here.

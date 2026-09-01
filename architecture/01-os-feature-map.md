@@ -34,6 +34,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 │   Debian · squashfs RO root (not ZFS) · writable config/state │
 │   · A/B dual-slot · updates as a product feature              │
 │   · OS-disk LUKS2 encryption, unlocked at boot (ADR-0011)     │
+│   · optional 2-disk mdadm RAID-1 OS mirror, dual ESP (0011)   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -51,9 +52,9 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
 | 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028); v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor (ADR-0011); create the OS-disk LUKS2 container and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011) |
+| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk topology choice — single disk (default) or 2-disk mdadm RAID-1 mirror (ADR-0011); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor per member (2x for a mirrored pair, ADR-0011); create the OS-disk LUKS2 container (on the `md0` array when mirrored) and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0013). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0008); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
-| 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021) |
+| 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021). OS mirror members are SMART-monitored too: mirror health (optimal / degraded / rebuilding) and per-member status surface in the `disks` status + metrics, and replacement resync progress is observable (ADR-0011, ADR-0021, ADR-0024) |
 | 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0011 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern). Controller design in `docs/architecture/06-backup-controller.md` (D-BK1–D-BK8) |
 
 ### Deferred areas (future paths, out of v1 scope)
@@ -94,7 +95,7 @@ decision-of-record). This section exists to navigate, not to re-derive.
 | Updates | A/B is the mechanism; updates (trigger, progress, reboot, rollback) are a product feature | [ADR-0006](adr/0006-updates-as-a-product-feature.md) |
 | Storage layout | Data + optional app roles assigned at install; system config state fixed on the OS disk | [ADR-0007](adr/0007-configurable-storage-layout-assigned-at-install.md) |
 | Observability | OpenTelemetry for all signals; Prometheus always-on; one `Telemetry` resource; tracing off by default; journald durable store | [ADR-0008](adr/0008-observability-otel.md) |
-| OS disk (layout + encryption) | Dedicated OS disk; LUKS2-sealed slots + spec store + keyfiles + `config/var`; external-factor boot unlock; data keys inside | [ADR-0011](adr/0011-os-disk-layout-encryption.md) |
+| OS disk (layout + encryption) | Dedicated OS disk — single (default) or 2-disk mdadm RAID-1 mirror; LUKS2-sealed slots + spec store + keyfiles + `config/var`; external-factor boot unlock; data keys inside; dual ESP per mirror member, kept in sync | [ADR-0011](adr/0011-os-disk-layout-encryption.md) |
 | OS disk (writable state) | Spec store + `config/var` on OS-disk partitions; journald logging/audit; versioned spec store | [ADR-0013](adr/0013-os-disk-writable-state.md) |
 | Networking | Two planes, roles + per-interface IP assigned at install | [ADR-0014](adr/0014-network-planes-configurable-at-install.md) |
 | Reconcile | Per-controller reconcile loops over a shared event source | [ADR-0017](adr/0017-per-controller-reconcile-loops.md) |
@@ -185,7 +186,8 @@ NAS user (API/UI/CLI)
 installer → assign roles:
    app dataset (opt-in) → images, compose state
    data pools           → shares, zvols, app volume datasets (user-chosen)
-   OS disk (fixed)      → ESP (plain) + LUKS2 container: slots + spec store
+   OS disk (fixed)      → single disk (default) or 2-disk mdadm RAID-1 mirror;
+                          ESP(s) (plain) + LUKS2 container: slots + spec store
                           + keyfiles + config/var (ADR-0011)
 ```
 ```

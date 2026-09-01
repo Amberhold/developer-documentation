@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-08-10
 - Amended: 2026-08-27 — initramfs boot step and LUKS support constraint (host-encryption change)
+- Amended: 2026-09-01 — dual-ESP sync constraint for a mirrored OS disk (os-disk-redundancy change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` §3.1, decision 1; ADR-0006,
   ADR-0009, ADR-0011
@@ -33,6 +34,14 @@ unlock-then-mount, ADR-0011). No unlock is needed to *select* a slot — only to
 candidate must support LUKS-encrypted slots with initramfs unlock; candidates
 that cannot unlock before mounting the rootfs are excluded.
 
+When the OS disk is a 2-disk mdadm RAID-1 mirror (ADR-0011), each mirror member
+carries its own ESP, and the per-slot kernel+initramfs must exist on **both**
+member ESPs. The A/B tooling must therefore also keep the two ESPs synchronized —
+it writes both ESPs and activates only after both carry the same per-slot
+kernel+initramfs — so either member alone can boot the host (the bootloader
+cannot read an mdadm array, so the ESPs are duplicated, not mirrored). Candidates
+that model a single ESP are excluded when the mirror option is in use.
+
 ## Alternatives considered
 
 - **ZFS-on-root**: rich OS-state snapshots, but couples boot to pool state and
@@ -56,7 +65,12 @@ that cannot unlock before mounting the rootfs are excluded.
   (ADR-0011), the initramfs unlocks the OS-disk container with an enrolled
   factor (YubiKey FIDO2 / USB keyfile / recovery passphrase, ADR-0011) before
   mounting the active slot's rootfs. A/B slot selection and rollback happen at
-  the ESP level and do not require the unlock.
+  the ESP level and do not require the unlock. With a mirrored OS disk this step
+  runs on the surviving member's ESP, and the initramfs assembles the `md0`
+  array (degraded with one member missing) before unlocking (ADR-0011).
+- A mirrored OS disk has two ESPs; the A/B tooling keeps both in sync before
+  activation, and boot-fail fallback operates per member (the firmware tries the
+  surviving member's ESP, then the other slot's kernel+initramfs on it).
 - No subsystem writes host files under `/` — including `/etc/exports`, which is
   not used (NFS shares are ZFS `sharenfs` properties, ADR-0009).
 - Daemons that need writable config follow one convention: the image ships a
