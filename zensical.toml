@@ -23,6 +23,7 @@ nav = [
     { "Backup controller" = "architecture/06-backup-controller.md" },
     { "Apps controller" = "architecture/07-apps-controller.md" },
     { "Certificates controller" = "architecture/08-certificates-controller.md" },
+    { "Networking controller" = "architecture/09-networking-controller.md" },
   ] },
   { "Architecture decision records" = [
     { "ADR-0001: Read-only squashfs root with A/B boot" = "adr/0001-read-only-squashfs-root-ab-boot.md" },
