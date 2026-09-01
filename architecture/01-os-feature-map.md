@@ -45,7 +45,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0011 — keyfiles now live inside the OS-disk LUKS container and are protected at rest by external unlock factors (YubiKey FIDO2 / USB keyfile / recovery passphrase, ADR-0011); OS-disk loss still loses the keyfile, so encrypted datasets remain unrecoverable), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
-| 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes; images on a configured (opt-in) dataset |
+| 5 | App workloads | Full docker-compose on containerd (opt-in); ZFS-backed volumes — one dataset per named compose volume under `volumeDataset/volumes/<name>` (ADR-0004), anonymous volumes on the runtime default store, user bind mounts passthrough; images on a configured (opt-in) dataset; one app per `volumeDataset` (the resource-name convention, apps design D-A5); a dedicated per-stack UID from the shared identity reserve keyed `app:<name>` (ADR-0004/0005, apps design D-A4); deletion destroys derived state only (apps design D-A5) |
 | 6 | API + CLI | First-class HTTP API (OpenAPI); thin CLI client; auth via sessions + API tokens (ADR-0020), with OIDC as an additional sign-in option for Web-UI sessions (ADR-0029) |
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020); federated principals get roles from IdP `groups` claims while NAS-local principals keep DB-stored roles (ADR-0029) |
 | 8 | Web-UI | Management console over the API; no direct host access |
@@ -146,7 +146,9 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
              │        │                   │ NFS backend → zfs set sharenfs (ADR-0009) shared event
              │        ├─ BlockShare ctlr    │ configfs (nvmet, NQN allowlist, source
              │        │                     │ allow_any_host never)           (ADR-0017)
-             │        ├─ Apps controller     │ nerdctl compose → containerd
+             │        ├─ Apps controller     │ nerdctl compose → containerd,     |
+             │        │                     │ dataset-per-volume (D-A2/D-A3),    |
+             │        │                     │ stack UID from the identity reserve |
              │        ├─ Identity service  │ UID ledger → spec store + tdbsam (app UIDs too)
              │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
              │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
@@ -162,6 +164,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
     docs/architecture/05-block-shares-zvols.md (ADR-0003)
     off-site backup: Backup controller, restic + zfs-send/mount facades →
     docs/architecture/06-backup-controller.md (ADR-0030)
+    apps: App controller, nerdctl facade + compose translation →
+    docs/architecture/07-apps-controller.md (ADR-0004)
 ```
 
 ## 5. Key flows
