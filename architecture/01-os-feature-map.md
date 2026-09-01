@@ -50,7 +50,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 7 | RBAC + users | NAS user DB; roles per capability; optional link to system/SMB users; Argon2id password hashing (ADR-0020); federated principals get roles from IdP `groups` claims while NAS-local principals keep DB-stored roles (ADR-0029) |
 | 8 | Web-UI | Management console over the API; no direct host access |
 | 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
-| 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028); v1 default: one management LAN for everything |
+| 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028), reconciled by the `certificates` controller (built-in CA / ACME / manual import, fail-closed + hot reload, design in `docs/architecture/08-certificates-controller.md`); v1 default: one management LAN for everything |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
 | 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk topology choice — single disk (default) or 2-disk mdadm RAID-1 mirror (ADR-0011); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor per member (2x for a mirrored pair, ADR-0011); create the OS-disk LUKS2 container (on the `md0` array when mirrored) and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011) |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0013). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0008); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
@@ -110,6 +110,7 @@ decision-of-record). This section exists to navigate, not to re-derive.
 | TLS | HTTPS on the management plane; built-in CA / ACME / manual-import trust | [ADR-0028](adr/0028-tls-management-plane.md) |
 | OIDC | OIDC sign-in for Web-UI sessions; claims-as-roles; JIT NAS account | [ADR-0029](adr/0029-oidc-authentication.md) |
 | Off-site backup | restic archive of opted-in snapshots; event-driven per-snapshot ingestion | [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) |
+| Cert controller | Dedicated `certificates` singleton; built-in CA / ACME / manual import; fail-closed HTTPS; hot reload | [08-certificates-controller](architecture/08-certificates-controller.md), [ADR-0028](adr/0028-tls-management-plane.md) |
 
 ### 3.9 Cross-cutting relationships
 
@@ -152,6 +153,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
              │        ├─ Identity service  │ UID ledger → spec store + tdbsam (app UIDs too)
              │        ├─ Disk-health ctlr    │ smartctl + scrub via Schedule (ADR-0021)
              │        ├─ Backup controller  │ restic shell-out, per-snapshot ingestion (ADR-0030)
+             │        ├─ Cert controller   │ pki facade: built-in CA / ACME / manual import,
+             │        │                     │ fail-closed HTTPS + hot reload (ADR-0028)
              │        └─ Update controller   │ A/B slot swap + reboot
             └──────────────────────────────────────┘
     framework-first controller runtime: D1–D10 mechanics, startup sequence,
@@ -166,6 +169,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
     docs/architecture/06-backup-controller.md (ADR-0030)
     apps: App controller, nerdctl facade + compose translation →
     docs/architecture/07-apps-controller.md (ADR-0004)
+    certificates: Cert controller, pki facade + fail-closed HTTPS →
+    docs/architecture/08-certificates-controller.md (ADR-0028)
 ```
 
 ## 5. Key flows
