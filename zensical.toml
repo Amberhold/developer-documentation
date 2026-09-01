@@ -21,6 +21,7 @@ nav = [
     { "Shares controller" = "architecture/04-shares-controller.md" },
     { "Block shares & zvols" = "architecture/05-block-shares-zvols.md" },
     { "Backup controller" = "architecture/06-backup-controller.md" },
+    { "Apps controller" = "architecture/07-apps-controller.md" },
     { "Certificates controller" = "architecture/08-certificates-controller.md" },
   ] },
   { "Architecture decision records" = [
