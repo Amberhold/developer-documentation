@@ -191,7 +191,10 @@ filter + the controller's `sanitizeWanted`).
 - **JWT validation surface** → Issuer, audience, expiry, and signature are
   validated against IdP discovery keys via the pinned go-oidc client library
   (v3.14.1, ADR-0001); unknown issuers are rejected by the verifier; an empty
-  subject is rejected.
+  subject is rejected. Caveat: the `groups` claims must be emitted in the **ID
+  token** by the IdP (many IdPs put them only in the access token), otherwise
+  every federated principal silently lands at read-only — the mapping never
+  matches an absent claim.
 - **Federated username collisions / identity confusion** → Rejected with clear
   errors (D-O5), never silently resolved.
 - **`principalSource` drift between contract and core** → Single change lands
