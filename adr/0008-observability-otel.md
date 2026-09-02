@@ -5,16 +5,42 @@
 - Amended: 2026-08-11 — Prometheus is the default *exporter*, not the
   instrumentation model; 2026-08-27 — provider-handle indirection: controllers
   resolve the running Meter/Tracer/Logger providers through a handle
-  (`core-daemon-design`, D8)
+  (`core-daemon-design`, D8); 2026-09-02 — implementation amendment: the log-SDK
+  validation spike is waived (direct SDK use, version-pinned), and the D-T5
+  single-call-site fallback seam is recorded (see the Amendment below).
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/01-os-feature-map.md` feature 9, §3.8;
-  `docs/architecture/02-core-daemon.md`; ADR-0001, ADR-0002, ADR-0013,
-  ADR-0017, ADR-0018, ADR-0019
+  `docs/architecture/02-core-daemon.md`; `docs/architecture/10-telemetry-controller.md`;
+  ADR-0001, ADR-0002, ADR-0013, ADR-0017, ADR-0018, ADR-0019
 
 > Consolidates the former ADR-0008 (Prometheus metrics), ADR-0025 (telemetry
 > resource / OTLP export), ADR-0026 (reconcile-loop tracing), and ADR-0027
 > (OTEL log export with journald). One observability substrate decision; the
 > alternatives and consequences of each are retained below.
+
+## Amendment (2026-09-02) — log-SDK spike waived, version pin, D-T5 seam
+
+Implementation of the `telemetry-controller` change records three clarifications:
+
+1. **The log-SDK validation spike is waived; the SDK is used directly.** The
+   OTEL Go log SDK (`go.opentelemetry.io/otel/sdk/log`) is beta-stable enough
+   for this slice. The risk is contained by pinning the exact version in
+   `core/go.mod` (and the image, ADR-0001) and by the D-T5 seam below. This
+   supersedes the "starts with a validation spike" consequence in §Consequences.
+2. **Pinned versions (as of this amendment):** `go.opentelemetry.io/otel` and
+   the metric/trace SDKs are pinned to `v1.46.0`
+   (`otel/sdk/metric` `v1.46.0`, `otel/sdk/trace` `v1.46.0`,
+   `otel/exporters/prometheus` `v0.68.0`, OTLP metric/trace exporters
+   `v1.46.0`); the log modules are pinned to `v0.22.0`
+   (`otel/log`, `otel/sdk/log`, OTLP log exporters). No runtime `go get`;
+   versions move only through an image rebuild (ADR-0001).
+3. **D-T5 single-call-site fallback seam.** All core-component log records flow
+   through one call site: the `slog` bridge handler (`internal/telemetry/
+   logbridge.go`) that emits into the OTEL LoggerProvider (journald exporter +
+   one OTLP log exporter per target, dual-write additive). If the log SDK
+   regresses, the bridge can dual-write to journald directly without touching
+   any controller — preserving the single-API property (ADR-0008) with a
+   small, localized change.
 
 ## Context
 
