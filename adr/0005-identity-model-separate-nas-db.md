@@ -39,7 +39,9 @@ link materialized on first successful OIDC login (ADR-0029).
   on create, reclaim on delete) and into consumers that resolve a linked user's
   UID (the `FileShare` controller). It also owns the JIT-created OIDC subject
   link (ADR-0029), allocating the UID and materializing the host link on first
-  federated login.
+  federated login. A federated username that collides with an existing
+  NAS-local username is rejected at sign-in (no silent re-use, no suffix
+  mangling; the shared username namespace stays unambiguous).
 - UIDs are also allocated to app stacks (ADR-0004): the identity service owns a
   single UID allocation space shared by users and apps, so POSIX ownership stays
   consistent across shares and app datasets (resolve-control-plane-gaps D9).
