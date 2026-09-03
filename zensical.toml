@@ -26,6 +26,7 @@ nav = [
     { "Networking controller" = "architecture/09-networking-controller.md" },
     { "Telemetry controller" = "architecture/10-telemetry-controller.md" },
     { "OIDC controller" = "architecture/11-oidc-controller.md" },
+    { "CLI client" = "architecture/12-cli-client.md" },
   ] },
   { "Architecture decision records" = [
     { "ADR-0001: Read-only squashfs root with A/B boot" = "adr/0001-read-only-squashfs-root-ab-boot.md" },
