@@ -2,9 +2,12 @@
 
 - Status: accepted
 - Date: 2026-08-27
+- Amended: 2026-09-08 — D6 gains a first-boot seed-manifest import step before the
+  singleton seeds, and the `updates` singleton is seeded alongside the others
+  (os-image-installer change)
 - Deciders: Amberhold design (discovery phase)
 - References: `docs/architecture/02-core-daemon.md`; `docs/architecture/01-os-feature-map.md` §3.2, §4;
-  ADR-0002, ADR-0008, ADR-0013, ADR-0017, ADR-0028
+  ADR-0002, ADR-0008, ADR-0013, ADR-0017, ADR-0028; `docs/architecture/13-os-image-installer.md` D8, D17
 
 ## Context
 
@@ -22,20 +25,32 @@ as a named decision; this ADR records them.
 After OS-disk unlock (host-encryption, ADR-0011), `core` starts in this order:
 
 1. mount `config/var`; load the spec store, migrating schema forward (ADR-0013)
-2. build default OTEL providers (sampling zero, no OTLP targets — the contract
+2. **import the installer seed manifest** (first boot only, before the singleton
+   seeds): detect a versioned seed, validate it, and fold its install-time
+   decisions into the store through the validated write path; a malformed seed
+   aborts and the API never starts (fail-closed). When a seed is present, the
+   singleton seed steps below skip and the seed's admin is authoritative over any
+   config-provided seed admin (`os-image-installer` D8, D17, D23)
+3. build default OTEL providers (sampling zero, no OTLP targets — the contract
    default) and the D8 provider handle (`core-daemon-design`)
-3. start the event bus; register all controllers (each resolving its subsystem
+4. start the event bus; register all controllers (each resolving its subsystem
    logger/meter through the provider handle — never holding providers itself, D8)
-4. start controllers — reconciling immediately, **with pools absent** (ADR-0013:
+5. start controllers — reconciling immediately, **with pools absent** (ADR-0013:
    reconcile scope degrades, startup never blocks on pool import)
-5. the storage controller imports pools as they become available; controllers
+6. the storage controller imports pools as they become available; controllers
    dependent on pools (shares, apps, backup) converge after via the D3
    fail-and-retry/backoff loop
-6. start the API server (HTTPS, ADR-0028) — last, so the first admin request
+7. seed the singleton resources — `network`, `telemetry`, `oidc`, `certificates`,
+   **`updates`** (empty spec: `channel=stable`, `autoApply=false`,
+   `deferReboot=false`) and **`UnlockPolicy`** (empty spec, `presence-only`
+   default) alongside the others — skipped when a seed was imported in step 2
+8. start the API server (HTTPS, ADR-0028) — last, so the first admin request
    sees a converged pass
 
 Spec-before-pool is fixed by ADR-0013; API-last makes the booted daemon present
-already-reconciled status rather than a cold store.
+already-reconciled status rather than a cold store. The seed-import step (2)
+precedes the singleton seeds (7) so no empty-spec window exists and the update
+and unlock-policy resources never 404 on an unconfigured host.
 
 ### Action-endpoint routing (D7)
 
@@ -66,3 +81,9 @@ does not change spec" contract scenario.
 - Each imperative action is owned by a single controller, audited like a spec
   write, and observable through `status` and metrics — with no desired-state
   mutation.
+- On first boot the seed manifest is folded in before the singleton seeds and
+  before the API serves, preserving core as the only spec-store writer
+  (ADR-0002); a malformed seed fails closed with no API (ADR-0013 posture).
+- The `updates` and `UnlockPolicy` singletons are seeded with their default specs
+  alongside the others, so their controllers reconcile from first boot and their
+  resources never 404 on an unconfigured host.

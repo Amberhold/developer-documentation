@@ -27,6 +27,7 @@ nav = [
     { "Telemetry controller" = "architecture/10-telemetry-controller.md" },
     { "OIDC controller" = "architecture/11-oidc-controller.md" },
     { "CLI client" = "architecture/12-cli-client.md" },
+    { "OS image & installer" = "architecture/13-os-image-installer.md" },
   ] },
   { "Architecture decision records" = [
     { "ADR-0001: Read-only squashfs root with A/B boot" = "adr/0001-read-only-squashfs-root-ab-boot.md" },
@@ -55,6 +56,7 @@ nav = [
     { "ADR-0029: OIDC authentication for the Web-UI" = "adr/0029-oidc-authentication.md" },
     { "ADR-0030: Off-site backup of ZFS snapshots with restic" = "adr/0030-offsite-backup-zfs-snapshots-restic.md" },
     { "ADR-0031: Core daemon controller runtime and startup sequence" = "adr/0031-core-daemon-controller-runtime-and-startup-sequence.md" },
+    { "ADR-0032: rauc as the A/B boot tooling" = "adr/0032-rauc-ab-boot-tooling.md" },
   ] },
 ]
 

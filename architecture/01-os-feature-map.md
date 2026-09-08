@@ -40,8 +40,8 @@ architecture (a declarative reconciler) that subsequent changes build on.
 
 | # | Feature | Minimal scope |
 |---|---------|---------------|
-| 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root |
-| 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API |
+| 0 | OS image | Debian base, read-only squashfs root, A/B dual-slot, writable state off-root. Status: design-only (mkosi Debian build producing squashfs A/B slots + per-slot kernel/initramfs on a plain ESP; rauc A/B tooling; dual-ESP sync + initramfs boot-status hooks) — see `docs/architecture/13-os-image-installer.md` (D1–D6), ADR-0032, ADR-0001/0011 |
+| 1 | System updates | Product feature: trigger, progress, reboot, rollback via UI/API. Status: contract + CLI verbs landed; controller implementation via rauc host facade, `repoUrl`+channel reconcile, `autoApply`, store-snapshot trigger/rollback, automatic boot-fail rollback — see `docs/architecture/13-os-image-installer.md` (D14–D16, D22), ADR-0032, ADR-0006 |
 | 2 | ZFS storage | Pools, datasets/properties, snapshots (scheduled with retention, shared `Schedule` resource, ADR-0022), zvols (data-only), native encryption (keyfile on OS-disk partition, ADR-0011 — keyfiles now live inside the OS-disk LUKS container and are protected at rest by external unlock factors (YubiKey FIDO2 / USB keyfile / recovery passphrase, ADR-0011); OS-disk loss still loses the keyfile, so encrypted datasets remain unrecoverable), dataset quotas (`quota`/`refquota`; user/group quotas deferred) |
 | 3 | SMB + NFS shares | Share a dataset over the network; share auth via linked users |
 | 4 | NVMe-oF shares | nvmet kernel target exporting zvols as block devices to remote hosts |
@@ -52,7 +52,7 @@ architecture (a declarative reconciler) that subsequent changes build on.
 | 9 | Observability | OpenTelemetry-instrumented metrics (default Prometheus export) for every subsystem; optional OTLP export of metrics/traces/logs; reconcile-loop tracing (off by default); direct OTEL log export with journald as the durable store |
 | 10 | Networking | Two planes, roles assigned at install (ADR-0014): management plane carries API/UI + DNS/hostname/NTP with a per-interface IP (DHCP or static); data plane carries SMB/NFS/NVMe-oF share traffic with per-interface IP at install. The management plane serves API/UI over HTTPS in v1 (ADR-0028), reconciled by the `certificates` controller (built-in CA / ACME / manual import, fail-closed + hot reload, design in `docs/architecture/08-certificates-controller.md`); v1 default: one management LAN for everything. Hostname/DNS/NTP and per-plane interface bindings are reconciled by the networking controller (systemd-networkd `NetHost` facade, apply-and-verify fail-closed, plane membership consumed by shares/apps/certs, design in `docs/architecture/09-networking-controller.md`) |
 | 11 | Pool storage | Disk inventory; pool/vdev creation; disk replacement |
-| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk topology choice — single disk (default) or 2-disk mdadm RAID-1 mirror (ADR-0011); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor per member (2x for a mirrored pair, ADR-0011); create the OS-disk LUKS2 container (on the `md0` array when mirrored) and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011) |
+| 12 | Installer | First-boot: assign storage layout roles (data + optional app, decision 7); import existing pools with role reassignment; admin bootstrap (admin user + password set at install, ADR-0020); assign network plane roles + per-interface IP (ADR-0014); OS-disk topology choice — single disk (default) or 2-disk mdadm RAID-1 mirror (ADR-0011); OS-disk sizing check for slots + spec store + config/var, 128–256 GB floor per member (2x for a mirrored pair, ADR-0011); create the OS-disk LUKS2 container (on the `md0` array when mirrored) and enroll initial unlock factors (USB keyfile + YubiKey FIDO2 + recovery passphrase) and the unlock policy before first boot (ADR-0011). Status: design-only (live-ISO console TUI + Go host-facade seam; fresh + recover modes; seed-manifest handoff to `core`) — see `docs/architecture/13-os-image-installer.md` (D7–D10), ADR-0032, ADR-0011/0013 |
 | 13 | Logging + audit | System logs via journald, forwarded to the OS-disk `config/var` partition; audit trail of admin actions (tagged journald entries), rotation + retention (ADR-0013). Core components log directly through the OTEL pipeline with journald as a parallel durable exporter (ADR-0008); third-party daemon logs (samba, containerd, kernel, sshd) remain journald-only |
 | 14 | Disk health | Scrub schedule (shared `Schedule` resource, ADR-0022); SMART monitoring via `core` smartctl polling — per-disk status + Prometheus gauges, thresholds spec-declared (ADR-0021). OS mirror members are SMART-monitored too: mirror health (optimal / degraded / rebuilding) and per-member status surface in the `disks` status + metrics, and replacement resync progress is observable (ADR-0011, ADR-0021, ADR-0024) |
 | 15 | Off-site backup | restic backup of snapshots of opted-in datasets to a remote repository; event-driven per-snapshot ingestion (restic dedup, no new `Schedule` consumer, ADR-0030); per-dataset opt-in via `amberhold:backup` ZFS user property (app-images excluded); dataset sources mounted read-only, zvols via `zfs send` stream; password co-located on the OS-disk spec-store partition, auto-loaded (ADR-0011 pattern); recovery boundary = data-pool loss only, D1 posture unchanged; restic pinned in the image (ADR-0001/0006 pattern). Controller design in `docs/architecture/06-backup-controller.md` (D-BK1–D-BK8) |
@@ -112,6 +112,7 @@ decision-of-record). This section exists to navigate, not to re-derive.
 | Off-site backup | restic archive of opted-in snapshots; event-driven per-snapshot ingestion | [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) |
 | Cert controller | Dedicated `certificates` singleton; built-in CA / ACME / manual import; fail-closed HTTPS; hot reload | [08-certificates-controller](architecture/08-certificates-controller.md), [ADR-0028](adr/0028-tls-management-plane.md) |
 | Networking controller | `network` singleton reconciled via systemd-networkd; apply-and-verify fail-closed; plane membership consumed by shares/apps/certs | [09-networking-controller](architecture/09-networking-controller.md), [ADR-0014](adr/0014-network-planes-configurable-at-install.md) |
+| OS image + installer | mkosi squashfs A/B image; live-ISO TUI installer; rauc A/B tooling; seed-manifest handoff; Update controller + UnlockPolicy singleton | [13-os-image-installer](architecture/13-os-image-installer.md), [ADR-0032](adr/0032-rauc-ab-boot-tooling.md), [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md), [ADR-0006](adr/0006-updates-as-a-product-feature.md), [ADR-0011](adr/0011-os-disk-layout-encryption.md) |
 
 ### 3.9 Cross-cutting relationships
 
@@ -158,8 +159,8 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
               │        │                     │ fail-closed HTTPS + hot reload (ADR-0028)
               │        ├─ Network controller │ NetHost facade: systemd-networkd planes,
               │        │                     │ hostname/DNS/NTP, apply-and-verify (ADR-0014)
-              │        └─ Update controller   │ A/B slot swap + reboot
-            └──────────────────────────────────────┘
+               │        └─ Update controller   │ rauc facade: slot swap + reboot (D14–D16, D22)
+             └──────────────────────────────────────┘
     framework-first controller runtime: D1–D10 mechanics, startup sequence,
     action routing → docs/architecture/02-core-daemon.md (ADR-0031)
     storage data-plane anchor: host facade + Disk/Pool controllers →
@@ -177,6 +178,9 @@ lives on it ([ADR-0013](adr/0013-os-disk-writable-state.md)).
      networking: Network controller, NetHost facade (systemd-networkd) +
      apply-and-verify, plane membership for shares/apps/certs →
      docs/architecture/09-networking-controller.md (ADR-0014)
+     os-image + installer: mkosi build, live-ISO TUI, seed-manifest handoff,
+     Update controller + UnlockPolicy singleton → docs/architecture/13-os-image-installer.md
+     (ADR-0032, ADR-0001/0006/0011/0013)
 ```
 
 ## 5. Key flows
@@ -223,7 +227,11 @@ refine the design but do not change the feature map or the earlier decisions.
   share-admin, app-admin, auditor, read-only (ADR-0018).
 - Update image format and slot/bootloader specifics → standard A/B tooling (rauc /
   ostree / ABRoot candidates), signed images with a baked-in trust anchor
-  (ADR-0001, ADR-0006, ADR-0011).
+  (ADR-0001, ADR-0006, ADR-0011). Resolved by the `os-image-installer` change:
+  **rauc** (ADR-0032) — signed `.raucb` bundles, systemd-boot EFI backend,
+  dual-ESP sync + initramfs boot-status hooks, one slot-writing path shared by
+  fresh install and update (`docs/architecture/13-os-image-installer.md` D1–D6,
+  D21–D22).
 - API resource model / OpenAPI shape → feature-map-aligned resources with
   desired-state CRUD + status, declared in `contracts/openapi/v1.yaml` with the
   metric catalog in `contracts/metrics/catalog.yaml` (ADR-0019).
