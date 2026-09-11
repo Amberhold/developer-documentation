@@ -1,10 +1,12 @@
 # OS Image, Installer, and Update Delivery
 
 > Discovery-phase design. Authored from the `os-image-installer` openspec change.
-> The decisions D1–D22 here fix how the Amberhold OS is **built** (mkosi image
-> build), **installed** (live-ISO console TUI), and **updated** (rauc A/B bundles
-> through a repo channel), and how the install-time decisions reach the spec
-> store (seed-manifest handoff). ADR-0001 fixes the squashfs A/B root, ADR-0011
+> The decisions D1–D27 here fix how the Amberhold OS is **built** (mkosi image
+> build for arm64 and amd64), **installed** (live-ISO console TUI), and
+> **updated** (rauc A/B bundles through a per-arch repo channel), and how the
+> install-time decisions reach the spec store (seed-manifest handoff), plus the
+> macOS qemu/HVF dev harness that exercises the boot chain locally. ADR-0001
+> fixes the squashfs A/B root, ADR-0011
 > the OS-disk layout + encryption + unlock factors, ADR-0006 updates as a product
 > feature, and ADR-0013 the writable state; this document fixes the *internal
 > mechanics* on top, built on the framework-first runtime in
@@ -54,6 +56,9 @@ slices.
 - The resolved threads D13–D22 recorded: UnlockPolicy, repoUrl,
   deferReboot/autoApply, store snapshot, seed ordering, Argon2id params,
   hostname/DNS/NTP, Pool+Dataset seed, ISO trust anchor, automatic rollback.
+- arm64 image support (D24), the per-arch repo channel layout (D25), the macOS
+  qemu/HVF dev harness (D26), and the installer-only live ISO carrying the trust
+  anchor + initial bundle (D27) recorded as the additive dev-harness capability.
 
 **Non-Goals:**
 
@@ -66,6 +71,11 @@ slices.
 - Web-based installer; no direct host access via installer (feature 8 posture).
 - The Web-UI and the image-baked web-ui static serve path — the web-ui repo
   remains a stub; this change bakes whatever static exists.
+- Removing the Linux CI boot matrix: amd64 remains the canonical product gate;
+  the local arm64 harness is additive, not a replacement.
+- Supporting any architecture beyond arm64 and amd64.
+- Running the macOS harness under x86_64 emulation (TCG) — the value is the
+  native arm64 loop; x86_64 macOS is out of scope.
 
 ## 3. Decisions
 
@@ -81,7 +91,12 @@ ADR-0032.
 Three custom pieces are owned by this design:
 
 1. **Dual-ESP sync** — a post-install hook copies the ESP content to the mirror
-   member's ESP before activation (ADR-0011).
+   member's ESP before activation (ADR-0011). The installed OS does not mount
+   its ESP, so an OS-initiated update has the hook mount the primary ESP from
+   the `amberhold.esp=` kernel-cmdline reference (and, on a mirror, derive the
+   other member's ESP from the `md0` array) before copying, and reconcile the
+   bootspec entry's initrd list with what it actually staged (the
+   kernel-modules initrd is not present in every build).
 2. **Boot-fail reporting** — selection is pre-unlock but rootfs mount success is
    post-unlock; an initramfs hook reports rauc boot-status good/bad.
 3. **rauc-writes-to-LUKS** — on a booted host the inactive slot is
@@ -105,6 +120,19 @@ ESP content. Pinned package versions per ADR-0001.
 ### D5: ext4 for the container's writable partitions
 Spec store + `config/var` on ext4 inside the container; slots remain squashfs.
 Matches the current bbolt host; xfs/f2fs deferred as unneeded.
+
+The installed root is a read-only squashfs slot, so `/var` is an **overlay
+mount** at boot: lower = the baked (read-only) `/var` in the slot, upper + work
+on the writable `config/var` partition (mounted at `/config/var` by the fstab
+the bake writes). The overlay is brought up by a small
+`amberhold-var-overlay.service` unit ordered after `config-var.mount` and before
+`basic.target` (and before `systemd-networkd-persistent-storage.service` and
+`systemd-timesyncd.service`, which touch `/var` before `basic.target`), so
+daemons that keep state under `/var` (containerd, systemd-logind, samba,
+systemd-timesyncd) start over a writable `/var` while the A/B slots stay
+read-only squashfs (ADR-0001/0011, ADR-0013 writable state on the OS-disk
+partitions). Without this, the installed system boots to multi-user but those
+daemons crash-loop on the read-only `/var`.
 
 ### D6: Update payload is a rauc bundle
 Deferred to D1 by definition: `.raucb` bundle, CMS-signed, trust anchor baked
@@ -232,6 +260,14 @@ falls back to the prior slot on repeated failure; the controller reports the
 automatic fallback in status. Alongside the manual `rollback` action this
 fulfills ADR-0006's manual-and-automatic rollback promise.
 
+The installed OS ships `efibootmgr`: rauc's EFI backend (`bootloader=efi`) shells
+out to it for `rauc status mark-good` and slot activation, so the boot-time
+mark-good service and the Update controller's rauc facade both need it present in
+the OS root (the live ISO carries it too, D27). The rauc D-Bus service wiring
+(system policy + `rauc.service`) that the live ISO bake adds is baked into the
+installed OS as well, because the mark-good CLI and the Update controller are
+D-Bus clients of `de.pengutronix.rauc` (D26/7.x verification).
+
 ### D23: Malformed seed fails closed
 A seed that fails schema or semantic validation aborts the import and the API
 never starts, surfacing a clear console error; reinstall is the only path to
@@ -239,14 +275,55 @@ re-seed. This is a deliberate fail-closed posture — degrading to an unconfigur
 boot would silently drop the install-time state and mask real problems. Recorded
 in the proposal's non-goals and enforced by the core seed-import step.
 
+### D24: The OS image is built for arm64 and amd64
+The mkosi build is parametrized by architecture: each arch selects its own
+`linux-image-*` meta-package and carries its own per-slot kernel+initramfs on
+the ESP, with the same A/B squashfs slot model and disk layout on both. Both
+archs are product-supported; the amd64 build remains the canonical CI gate
+(D11), and an arm64 build + smoke runs alongside it in CI.
+
+### D25: Per-architecture repo channel segments
+rauc bundles are architecture-specific (the payload includes the kernel and
+initramfs), so each repo channel carries an architecture segment:
+`<repoUrl>/<channel>/<arch>/latest.json` plus `<arch>/<version>/manifest.json`,
+where `arch` is `arm64` or `amd64`. `Updates.repoUrl` stays a single HTTPS URL
+and `channel` semantics are unchanged; the Update controller resolves the
+`latest.json` for its **host** arch (an injectable resolver defaulting to
+`runtime.GOARCH` on the baked per-arch core binary) and verifies the
+repo-declared `arch` equals the host arch before staging — a second line of
+defense because rauc's `compatible` stays `amberhold` for both archs and would
+otherwise only fail at the next boot. This is a repo-format contract only; the
+`Updates` OpenAPI schema is unchanged.
+
+### D26: macOS qemu/HVF dev harness replaces the Linux-only qemu-matrix for local iteration
+A Lima arm64 VM hosts the Linux-only build stage (mkosi, rauc bundle, repo
+publish); the macOS host boots the built image natively under
+`qemu-system-aarch64 -accel hvf` with edk2-aarch64 firmware, so systemd-boot
+slot selection, LUKS unlock, and core startup are exercisable on a dev Mac
+without Linux CI. The Lima VM mounts a host directory; mkosi output and the
+published repo write there, the host serves the repo over HTTPS (core rejects a
+non-HTTPS `repoUrl`, D14), and the qemu guest fetches it at the slirp gateway
+`10.0.2.2`. The installer live ISO is built as a dedicated installer-only mkosi
+preset (D27); the e2e currently drives that ISO headless (`amberhold.headless=1`)
+as an interim, with driving the real console TUI over the qemu serial console
+required by the follow-up task.
+
+### D27: Installer-only live ISO carries the trust anchor and the initial bundle
+The live ISO is a dedicated installer-only mkosi preset (console TUI installer +
+host deps: mdadm, cryptsetup, kpartx, rauc — not the OS root). It carries the
+same rauc trust anchor baked into the image (D21) **and** an initial signed OS
+bundle, mounted at `/media/amberhold/amberhold.raucb` per the installer's
+default, so a fresh install has a bundle to `rauc install` without reaching the
+repo and verifies identically to an update.
+
 ## 4. Reconciliation and boot
 
 The `UpdateController` owns the singleton `updates` kind and reconciles the
 desired `repoUrl`+`channel` against the `Rauc` host facade (task 6.2). Each pass:
 
 - **Repo/channel**: when the host repo URL or channel differs from the spec,
-  reconfigure the rauc repo and re-list available bundles; idempotent no-op when
-  converged.
+  reconfigure the rauc repo and re-list available bundles for the host
+  architecture (D25); idempotent no-op when converged.
 - **autoApply**: when `autoApply` is true and the repo offers a newer bundle than
   the active slot, stage/verify/activate through the same path as `trigger`,
   honoring `deferReboot` (D15).
@@ -267,6 +344,74 @@ hook assembles `md0` degraded when a mirror member is missing, unlocks the
 container with an enrolled factor, reports rauc boot-status, and mounts the
 active slot. A mark-good service records a successful boot; repeated failure
 boot-counts and falls back to the prior slot automatically (D22).
+
+## 4a. macOS dev harness and per-arch repo
+
+The arm64 image and the boot chain are exercised locally on a macOS development
+host (D24–D26). The division of labor across the two Linux environments is:
+
+```
+   macOS host                                    Lima arm64 VM (Linux)
+   ─────────────────────────                    ─────────────────────────
+   qemu-system-aarch64 -accel hvf               mkosi build (arm64 .raw)
+   edk2-aarch64 firmware                        rauc bundle + publish
+   harness driver (scenarios, disks,            -> repo served to qemu guest
+     injects, asserts)                           (per-arch segment)
+```
+
+The harness boots what Lima builds; Lima publishes what qemu consumes — no CI in
+the loop. The Lima VM mounts a host directory (virtiofs/9p); mkosi's output and
+`publish-bundle.sh` write into it so the image/ISO/repo are host-visible without
+a copy-out. The host serves the repo over HTTPS with a locally-generated
+CA/cert (the CA is baked into the image so the Update controller trusts it) and
+the qemu guest reaches it at the slirp gateway `10.0.2.2`. The core-vs-real-host
+"fake repo" (D25) is this same host HTTPS server over the shared dir.
+
+The Update controller resolves `<repoUrl>/<channel>/<arch>/latest.json` for its
+host arch and verifies the repo-declared bundle `arch` before staging (D25). The
+per-arch repo layout:
+
+```
+   /repo/                               # Updates.repoUrl root (unchanged)
+     stable/                            # channel from Updates.spec
+       arm64/
+         latest.json                    # current arm64 stable bundle pointer
+         1.2.3/amberhold-1.2.3.raucb
+         1.2.3/manifest.json            # version, sha256, arch, publishedAt
+       amd64/
+         latest.json
+         1.2.3/amberhold-1.2.3.raucb
+         1.2.3/manifest.json
+```
+
+`publish-bundle.sh` takes an `arch` argument and writes both the version
+`manifest.json` (declaring `arch`) and the per-arch `latest.json`; each arch
+publishes independently and its `latest.json` points at its own arch's bundle.
+
+Under qemu the UnlockPolicy observed-factor kinds are exercised with a
+USB-keyfile factor (presence-only, real cryptenroll, no hardware); FIDO2
+touch-mode stays deferred to hardware/Linux CI. The installer e2e is intended to
+drive the real console TUI over the qemu serial console (not the `--headless`
+env path), which keeps the admin password off `/proc/cmdline`; as an interim the
+scenario currently drives the headless installer (D26).
+
+The harness boots edk2 with a **writable vars pflash** (`amberhold-vars.fd`,
+initialized from the firmware) shared across the install and target boots: on a
+UEFI install rauc's EFI backend writes the per-slot `BootOrder`/`Boot####` NVRAM
+entries at install time and reads them back for `rauc status mark-good` and slot
+activation (D22). With only the read-only code pflash the NVRAM is volatile and
+`rauc status mark-good` fails with "Did not find primary boot entry" — the
+boot-count fallback (7.x) is only exercisable when the NVRAM persists.
+
+The interim headless install boots the live image with qemu `-kernel`/`-initrd`
+(and `root=/dev/vda2`, which avoids an initrd by-partuuid race), which bypasses
+UEFI and leaves the guest without efivars. The installer detects the missing
+UEFI runtime and skips only the `efibootmgr` A/B entry creation, still writing
+the systemd-boot files + per-slot bootspec entries to the ESP; the installed
+target then boots under edk2 via systemd-boot's removable path, so slot
+selection and the boot chain are still exercised. A real UEFI install has
+efivars and still fails hard if entry creation fails, so a production system is
+never left unable to switch slots.
 
 ## 5. Seed-manifest handoff
 
@@ -321,6 +466,17 @@ the store's serialized path and never build providers themselves.
 - **Rollback across a schema change boots an older core** → the Update
   controller snapshots the store before trigger and restores it on rollback
   (D16).
+- **The qemu-matrix never exercised systemd-boot under UEFI** → the harness
+  boots the edk2-aarch64 pflash firmware, the first real test of slot selection;
+  expect firmware/bootloader iteration (D26).
+- **Nested virtualization is unavailable in Lima** → the harness boots qemu on
+  the macOS host (HVF), not inside Lima; Lima is only the build/rauc stage
+  (D26).
+- **arm64 parity in CI** → adds a second image arch to build and verify; the
+  amd64 gate is unchanged and authoritative (D24).
+- **A mispublished wrong-arch bundle** → the repo `arch` field is verified
+  against the host arch before staging, since rauc `compatible` is shared across
+  archs (D25).
 
 ## 8. Migration plan
 

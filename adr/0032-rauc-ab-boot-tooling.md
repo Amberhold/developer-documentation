@@ -25,7 +25,7 @@ the deferred choice.
 (`os-image-installer` D1). Rationale against the ADR-0001/0011 constraints:
 
 - **Explicit slot model** matches the two-squashfs-slots layout on the OS disk:
-  slots are named (`slot.a`/`slot.b`) with per-slot mount handling and a
+  slots are named (`rootfs.0`/`rootfs.1`) with per-slot mount handling and a
   `booted` marker, so activation and rollback are declarative slot operations
   rather than bespoke bootenv scripting.
 - **Signed `.raucb` bundles** satisfy ADR-0006's signed-image requirement: CMS
