@@ -30,6 +30,10 @@ We are in a discovery phase: the system is designed here, in this documentation,
 - [Shares controller](architecture/04-shares-controller.md) — one `FileShare` controller with SMB/NFS mechanism backends + the identity UID service (ADR-0023, ADR-0009, ADR-0005).
 - [Block shares & zvols](architecture/05-block-shares-zvols.md) — the `Zvol` and `BlockShare` controllers completing the data plane: nvmet configfs exports, NQN allowlists, `allow_any_host` never (ADR-0003, ADR-0014).
 
+- [CLI client](architecture/12-cli-client.md) — the `amberhold` operator command: verb-first thin client, kind-to-path inference, login → token → config, TLS trust, output control (ADR-0020, ADR-0028).
+- [OS image & installer](architecture/13-os-image-installer.md) — mkosi squashfs A/B image, live-ISO TUI installer, rauc A/B tooling, seed-manifest handoff, Update + UnlockPolicy controllers (ADR-0032).
+- [Web-UI](architecture/14-web-ui.md) — the browser management console: static SPA (D-W1–D-W17), single-origin front door, capability-aware rendering, reconcile-aware data layer (ADR-0033, ADR-0012).
+
 ### Architecture decision records
 
 - [ADR-0001](adr/0001-read-only-squashfs-root-ab-boot.md) — read-only squashfs root with A/B boot (`core` in the image, no host-file writes under `/`, RO-root writable-config convention, standard A/B tooling)
@@ -58,3 +62,5 @@ We are in a discovery phase: the system is designed here, in this documentation,
 - [ADR-0029](adr/0029-oidc-authentication.md) — OIDC authentication for the Web-UI (single IdP, authorization-code + PKCE, claims-as-roles, JIT NAS account)
 - [ADR-0030](adr/0030-offsite-backup-zfs-snapshots-restic.md) — off-site backup of ZFS snapshots with restic (event-driven per-snapshot ingestion, per-dataset opt-in, data-pool-loss recovery boundary)
 - [ADR-0031](adr/0031-core-daemon-controller-runtime-and-startup-sequence.md) — core daemon controller runtime and startup sequence (framework-first runtime, D1–D10)
+- [ADR-0032](adr/0032-rauc-ab-boot-tooling.md) — rauc as the A/B boot tooling (explicit slot model, signed `.raucb` bundles, EFI/systemd-boot backend, LUKS slots)
+- [ADR-0033](adr/0033-management-plane-front-door.md) — management-plane front door (static server terminates browser TLS with certificates-controller material; `core` binds loopback)

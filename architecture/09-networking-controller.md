@@ -122,8 +122,8 @@ unchanged.
 ### D-N6: Cert coupling becomes real, ordering matters
 `deriveSANs` already reads `Network`; this change makes that read meaningful. The
 daemon seeds `network` before `certificates` and registers the network controller
-before certs, so on first reconcile certs see the real hostname/IPs rather than
-`defaultSANs`.
+before certs, so on first reconcile certs see the real hostname/IPs alongside
+the always-carried loopback SANs (ADR-0033 D-W4).
 - *Why:* Closes the latent dependency the cert slice already declared without
   changing its contract.
 
@@ -196,8 +196,8 @@ No data migration: the `network` resource is new; `seedNetwork` creates the
 singleton on startup (mirroring `seedCertificates`), defaulting to an empty spec
 (single LAN) so existing installs converge to current behavior. Rollback: revert
 the change; `core` keeps serving with the previous network state since the
-controller never destroys config it cannot verify (D-N3). Cert SANs fall back to
-`defaultSANs` as today.
+controller never destroys config it cannot verify (D-N3). Cert SANs keep the
+always-carried loopback set (ADR-0033 D-W4) as today.
 
 ## 9. Open questions (implementation-time)
 

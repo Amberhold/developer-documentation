@@ -80,10 +80,16 @@ A new `certificates` kind owned by a new cert controller, cross-referencing
 
 ### D-C2: SAN sources from the `network` resource
 The server certificate's SANs are derived from `network.spec.hostname` (plus
-management-plane IPs when the `network` resource declares them).
+management-plane IPs when the `network` resource declares them), with the
+loopback names (`localhost`, `127.0.0.1`) **always** carried so the
+management-plane front door can verify the loopback `core` hop against the
+managed cert (ADR-0033 D-W4) — the loopback SANs are a steady-state property,
+not only a pre-network-reconcile fallback.
 - *Why:* The management-plane identity is hostname-based; deriving SANs avoids
   duplicating identity in two resources and keeps `certificates` a thin
-  transport-security resource.
+  transport-security resource. The front door is the only externally bound
+  listener and proxies `/v1/*` to a loopback-bound `core`, so its CA-trust + SAN
+  verification of that hop requires the loopback names to always be present.
 - *Alternative:* SANs declared directly on the `certificates` spec (rejected:
   two sources of truth for the same identity).
 
@@ -193,9 +199,9 @@ controller never builds providers.
   interface keeps the resource/spec model stable so the full client drops in
   without contract churn.
 - **SAN derivation couples cert controller to `network` resource** → mitigation:
-  the coupling is read-only (hostname reference); a missing/unset hostname falls
-  back to management-plane IPs, keeping the controller operable
-  pre-network-reconcile.
+  the coupling is read-only (hostname reference); the loopback SANs are always
+  carried, so a missing/unset hostname still yields a verifiable cert and the
+  controller stays operable pre-network-reconcile.
 
 ## 8. Migration plan
 
