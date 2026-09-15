@@ -1,7 +1,8 @@
 # Web-UI — the browser management console
 
-> Discovery-phase design. Authored from the `web-ui-foundation` openspec change.
-> The decisions D-W1–D-W17 here fix how the Web-UI (feature 8) is built, served,
+> Discovery-phase design. Authored from the `web-ui-foundation` openspec change
+> and extended by `web-ui-resource-framework`.
+> The decisions D-W1–D-W18 here fix how the Web-UI (feature 8) is built, served,
 > and authenticated: the React + TypeScript + Vite + Mantine static SPA built
 > with Bun (D-W1), contract consumption with generated types (D-W2), single
 > same-origin serving through a reverse-proxying static server (D-W3), the
@@ -9,12 +10,12 @@
 > session cookie + OIDC redirect with no tokens in the browser (D-W5), the
 > current-principal capability endpoint (D-W6), the dev/e2e workflow (D-W7), and
 > image integration through the A/B path (D-W8), plus the security, caching,
-> data-layer, navigation, theming, and session-lifecycle decisions that fix how
-> the console behaves (D-W9–D-W17). Serving topology is ADR-0033; the UI is a
-> separate static server baked into the image (ADR-0012) and a thin client over
-> the v1 API (ADR-0002) — the browser-side counterpart to the CLI
-> (`docs/architecture/12-cli-client.md`). The API contract is the source of
-> truth (`contracts/openapi/v1.yaml`, ADR-0019).
+> data-layer, navigation, theming, session-lifecycle, and resource-screen
+> decisions that fix how the console behaves (D-W9–D-W18). Serving topology is
+> ADR-0033; the UI is a separate static server baked into the image (ADR-0012)
+> and a thin client over the v1 API (ADR-0002) — the browser-side counterpart to
+> the CLI (`docs/architecture/12-cli-client.md`). The API contract is the source
+> of truth (`contracts/openapi/v1.yaml`, ADR-0019).
 
 ## 1. Purpose
 
@@ -23,9 +24,10 @@ management surface over the v1 API without SSH: declarative desired-state
 editing, resource status, imperative actions, and the update/rollback flows —
 all rendered against the operator's own capabilities. It is deliberately *thin*:
 static assets only, no server runtime, no direct host access, and admission
-(ADR-0018) remains the only enforcement point. This change is the foundation and
-scaffold: project tooling, the serving topology, contract consumption, the app
-shell, and the data layer. No resource feature screens land here.
+(ADR-0018) remains the only enforcement point. The foundation change landed the
+project tooling, the serving topology, contract consumption, the app shell, and
+the data layer; D-W18 adds the descriptor-driven resource-screen framework and
+the first vertical slice (Identity), with the remaining groups following.
 
 ## 2. Goals / Non-Goals
 
@@ -37,10 +39,13 @@ shell, and the data layer. No resource feature screens land here.
   the OS image.
 - Reuse the existing machinery (certificates controller, A/B updates, telemetry)
   rather than inventing parallel paths.
+- Provide one descriptor-driven pattern for resource screens and derive spec
+  forms from the contract, proven on the Identity group so later groups are
+  additive (D-W18).
 
 **Non-Goals:**
-- Designing or implementing feature screens beyond the app shell (this change is
-  design + scaffold).
+- Feature screens beyond the Identity group in this change; the remaining groups
+  register placeholder routes and land their screens in follow-up changes.
 - A bespoke design system; Mantine 9 is the design system.
 - SSR, a Node/BFF runtime in the image, or a separate UI update channel.
 - Changing the server-side session/OIDC model (ADR-0020, ADR-0029).
@@ -78,8 +83,11 @@ web-ui/  (repo nas/web-ui, module scoped to the SPA)
 `contracts/openapi/v1.yaml` is vendored into `web-ui/contracts/` (mirroring
 `cli/contracts/openapi/v1.yaml`), TypeScript types are generated with a pinned
 generator, and a conformance/drift check fails the build when the vendored
-contract drifts from the source. Generated types are not committed; the vendor +
-pinned generator + drift check are.
+contract drifts from the source. Generated TypeScript types are not committed;
+the vendor + pinned generator + drift check are. The generated form schema
+(D-W18) is the exception: it **is** committed, and the drift check compares it
+against a fresh generation so a contract change that skips `bun run formgen`
+fails the build.
 
 - **Generated types, hand-written client logic.** Type generation is pinned and
   runs at build time; the client (D-W5, D-W12) is hand-written and thin.
@@ -256,6 +264,29 @@ inline styles. A nonce-based `style-src` is a hard follow-up and deferred.
   brand tokens (the `docs`/`logo` palette) with light/dark modes; the logo asset
   is reused from the meta-repo `logo/`. No bespoke CSS system beyond Mantine and
   a small global stylesheet.
+- **D-W18 — Descriptor-driven resource screens with contract-generated forms.** A
+  single resource descriptor registry (`web-ui/src/resources/registry.ts`) is the
+  source of truth per resource kind: its navigation placement, routes, list and
+  detail screens, columns, form overrides, and affordances. `NAV_GROUPS` is
+  derived from the registry, so navigation and routing cannot drift; adding a
+  kind is one registration. Per-kind create/update/delete availability is derived
+  from the operations the contract declares, with explicit overrides for the
+  non-uniform v1 kinds (`Role` is read-only; `Session` create is sign-in, not an
+  admin create; `Token` is immutable after issue — revoke is delete). Spec forms
+  are generated at build time from the vendored contract
+  (`scripts/gen-formschema.ts` → `src/contracts/generated/formSchema.ts`, folded
+  into the drift check so a stale schema fails the build): controller-owned spec
+  fields marked `readOnly: true` in the contract are excluded from the editable
+  set and carried through unchanged on an edit (a spec write replaces the whole
+  spec, so excluding a field from the form must not drop it from the write),
+  `writeOnly` fields are input-only (blank on edit means unchanged), and a
+  YAML/JSON full-fidelity escape hatch carries the complete spec for edits the
+  generated form does not expose (gated by the kind's update operation and the
+  principal's write capability, like every other mutating affordance). A one-time secret (token create) is shown once
+  at the create boundary and never written to the query cache. The Identity group
+  — users, roles, sessions, tokens — is the first instantiation; the remaining
+  groups register descriptors whose routes resolve to a placeholder pending their
+  own slices.
 
 ## 13. Risks / Trade-offs
 
