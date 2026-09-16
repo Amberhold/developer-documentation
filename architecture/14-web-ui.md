@@ -1,8 +1,8 @@
 # Web-UI — the browser management console
 
 > Discovery-phase design. Authored from the `web-ui-foundation` openspec change
-> and extended by `web-ui-resource-framework`.
-> The decisions D-W1–D-W18 here fix how the Web-UI (feature 8) is built, served,
+> and extended by `web-ui-resource-framework` and `web-ui-storage-slice`.
+> The decisions D-W1–D-W19 here fix how the Web-UI (feature 8) is built, served,
 > and authenticated: the React + TypeScript + Vite + Mantine static SPA built
 > with Bun (D-W1), contract consumption with generated types (D-W2), single
 > same-origin serving through a reverse-proxying static server (D-W3), the
@@ -11,7 +11,7 @@
 > current-principal capability endpoint (D-W6), the dev/e2e workflow (D-W7), and
 > image integration through the A/B path (D-W8), plus the security, caching,
 > data-layer, navigation, theming, session-lifecycle, and resource-screen
-> decisions that fix how the console behaves (D-W9–D-W18). Serving topology is
+> decisions that fix how the console behaves (D-W9–D-W19). Serving topology is
 > ADR-0033; the UI is a separate static server baked into the image (ADR-0012)
 > and a thin client over the v1 API (ADR-0002) — the browser-side counterpart to
 > the CLI (`docs/architecture/12-cli-client.md`). The API contract is the source
@@ -27,7 +27,8 @@ static assets only, no server runtime, no direct host access, and admission
 (ADR-0018) remains the only enforcement point. The foundation change landed the
 project tooling, the serving topology, contract consumption, the app shell, and
 the data layer; D-W18 adds the descriptor-driven resource-screen framework and
-the first vertical slice (Identity), with the remaining groups following.
+the first vertical slice (Identity); D-W19 adds the shared action, reference,
+structured-widget, and typed-status primitives and the Storage group.
 
 ## 2. Goals / Non-Goals
 
@@ -218,7 +219,7 @@ plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 `style-src 'unsafe-inline'` is required in v1 because Mantine emits dynamic
 inline styles. A nonce-based `style-src` is a hard follow-up and deferred.
 
-## 12. Decisions D-W11–D-W17 (console behavior)
+## 12. Decisions D-W11–D-W19 (console behavior)
 
 - **D-W11 — Capability taxonomy is contract-declared with an exhaustive UI map.**
   The v1 capability ids are a closed `Capability` enum in
@@ -283,10 +284,43 @@ inline styles. A nonce-based `style-src` is a hard follow-up and deferred.
   YAML/JSON full-fidelity escape hatch carries the complete spec for edits the
   generated form does not expose (gated by the kind's update operation and the
   principal's write capability, like every other mutating affordance). A one-time secret (token create) is shown once
-  at the create boundary and never written to the query cache. The Identity group
-  — users, roles, sessions, tokens — is the first instantiation; the remaining
-  groups register descriptors whose routes resolve to a placeholder pending their
-  own slices.
+  at the create boundary and never written to the query cache. The Identity
+  group — users, roles, sessions, tokens — and the Storage group (D-W19) are
+  live; the remaining groups register descriptors whose routes resolve to a
+  placeholder pending their own slices.
+- **D-W19 — Contract-derived status/action manifests and the Storage-group
+  patterns.** The build-time generator emits, alongside the editable spec fields,
+  a read-only *status* manifest from each resource's declared `status` object and
+  an *action* manifest from the contract's POST action sub-paths (resource
+  `/{kind}/{id}/{verb}` and singleton `/{singleton}/actions/{verb}` shapes), each
+  action carrying the payload fields derived from its request body; both
+  manifests are committed and covered by the same drift check as the spec form
+  (D-W18), so a contract change that skips regeneration fails the build.
+  Descriptors supply only presentation and overrides: `actions[]` (path template
+  from the manifest, capability defaulting to the kind's write capability,
+  optional payload reference overrides, and `enabled: false` to suppress a
+  derived action the v1 API rejects, the `Role`/`Token` precedent); typed
+  `status.actual` rendering driven by the contract type with `statusFormats`
+  overrides (bytes, ratio, enum badge, boolean, timestamp, text); `destructive:
+  type-name` for removals that destroy host state irreversibly (the delete modal
+  then requires the resource name to be typed); and a `metadataName` input for
+  kinds whose name the server does not derive (Schedule). Reference fields are
+  declarative resource-kind resolvers (`{kind, valuePath, labelPath?, filter?}`)
+  resolving live options, including a dependent reference whose kind follows a
+  discriminator (Schedule `target` follows `policyType`) and context-sensitive
+  exclusions (a disk replacement never offers the disk being replaced; pool
+  membership offers only data-pool-eligible disks). Structured widgets
+  (`vdev-builder`, `key-value`, `retention`) are registered once and bound by
+  name, so descriptors stay data, and the YAML/JSON escape hatch remains for
+  every field a widget does not expose. Controller-owned Storage spec fields
+  (`Snapshot.spec.schedule`, `Dataset.spec.shares`, `Disk.spec.role`/`osMirror`)
+  are marked `readOnly` in the contract so the editable set is contract-derived.
+  The Storage group — pools, disks, datasets, zvols, snapshots, schedules — is
+  delivered on these primitives: `Zvols` is a top-level Storage entry; disks are
+  read-mostly (discovery-first, `operations.create = false`) with `replace` and
+  `replace-os-member` actions; datasets/zvols validate that the path sits under
+  the selected pool; and pool create/edit uses the `vdev-builder` (first full
+  vertical slice).
 
 ## 13. Risks / Trade-offs
 

@@ -32,7 +32,7 @@ We are in a discovery phase: the system is designed here, in this documentation,
 
 - [CLI client](architecture/12-cli-client.md) — the `amberhold` operator command: verb-first thin client, kind-to-path inference, login → token → config, TLS trust, output control (ADR-0020, ADR-0028).
 - [OS image & installer](architecture/13-os-image-installer.md) — mkosi squashfs A/B image, live-ISO TUI installer, rauc A/B tooling, seed-manifest handoff, Update + UnlockPolicy controllers (ADR-0032).
-- [Web-UI](architecture/14-web-ui.md) — the browser management console: static SPA (D-W1–D-W17), single-origin front door, capability-aware rendering, reconcile-aware data layer (ADR-0033, ADR-0012).
+- [Web-UI](architecture/14-web-ui.md) — the browser management console: static SPA (D-W1–D-W19), single-origin front door, capability-aware rendering, reconcile-aware data layer (ADR-0033, ADR-0012).
 
 ### Architecture decision records
 
