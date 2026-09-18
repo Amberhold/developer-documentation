@@ -1,7 +1,7 @@
 # OS Image, Installer, and Update Delivery
 
 > Discovery-phase design. Authored from the `os-image-installer` openspec change.
-> The decisions D1–D27 here fix how the Amberhold OS is **built** (mkosi image
+> The decisions D1–D29 here fix how the Amberhold OS is **built** (mkosi image
 > build for arm64 and amd64), **installed** (live-ISO console TUI), and
 > **updated** (rauc A/B bundles through a per-arch repo channel), and how the
 > install-time decisions reach the spec store (seed-manifest handoff), plus the
@@ -191,7 +191,13 @@ kind: the spec holds the **desired** per-mode policy (seeded by the installer,
 operator-writable), and a small core controller shells out to
 `cryptsetup luksDump` / `systemd-cryptenroll` to mirror enrolled factors into
 **status** after boot; drift between the desired policy and observed factors
-surfaces in status rather than being silently overwritten. The seed's
+surfaces in status rather than being silently overwritten. Observation targets
+the **backing** LUKS device (resolved from the configured container mapper via
+`cryptsetup status`), because the opened mapper's leading sectors are the
+decrypted inner GPT, not the LUKS header. The initial all-zero luksFormat key is
+probed for (`open --test-passphrase` with the zero key) to distinguish a
+format-only container from one whose initial key was removed after a real factor
+was enrolled — `luksDump` alone cannot distinguish them. The seed's
 unlock-policy mirror initializes the spec at install; the Update controller
 reads the resource for the touch-mode pre-reboot warning. The singleton is
 seeded with an empty spec at startup alongside the other singletons (so it never
@@ -316,6 +322,64 @@ bundle, mounted at `/media/amberhold/amberhold.raucb` per the installer's
 default, so a fresh install has a bundle to `rauc install` without reaching the
 repo and verifies identically to an update.
 
+### D28: The images bake the ZFS kernel module at build time
+Both the OS image and the installer live image carry the ZFS kernel module
+(`zfs.ko`) for their own kernel. Debian ships no prebuilt module — `zfs-modules`
+is a virtual package provided only by `zfs-dkms`, which compiles against the
+target kernel headers — so the mkosi build compiles the module at build time and
+installs it into the image module tree (D4/ADR-0001). Without it the installed
+system's `zfs-load-module.service` fails, `modprobe zfs` fails, and every `zpool`
+operation (the `Pool` controller's probe, `zpool create`, import/scrub) is
+unreachable — the storage plane designed in `docs/architecture/03-storage-controller.md`
+and ADR-0004 is dead. The installer's `CreateStorageRoles` (`zpool create`) fails
+the same way, so the live image bakes the module too. Implementation:
+
+- **Build-time DKMS, per image tree.** The kernel version is discovered from the
+  image's `/usr/lib/modules/*` and never hardcoded, so it tracks the per-arch
+  `linux-image-*` meta-package (D24). The module is built with `dkms` from
+  `zfs-dkms` against the matching per-arch `linux-headers-*` and staged into the
+  image module tree; mkosi then runs `depmod` for the image kernel, so
+  `modprobe zfs` resolves.
+- **Build-only tooling never ships.** `dkms`, `zfs-dkms`, the kernel headers, and
+  the compiler are `BuildPackages` (build overlay only, D4's package flow), not
+  image packages: the final OS image carries `zfsutils-linux` plus the built
+  module, no toolchain. A build-time assertion fails the build if the module (or
+  its `modules.dep` entry) is missing, so the regression cannot ship silently.
+- **Userspace version match.** The module builds from the `zfs-dkms` source, which
+  is the same source version as the shipped `zfsutils-linux` userspace; the build
+  asserts `zfs-dkms` == `zfsutils-linux` and that the built module version equals
+  the userspace version, so module and userspace cannot silently desynchronize.
+  ZFS stays on trixie `contrib` (no version upgrade, no backports move).
+- **Not in the initramfs.** The initramfs unlocks the dm-crypt container and
+  mounts the squashfs root; it never touches ZFS, so `mkosi.initrd.conf`'s
+  `KernelModules=` list is unchanged and the module is loaded from the real root
+  by `zfs-load-module.service`. There is no runtime DKMS: the A/B image replaces
+  the kernel wholesale on update, so a baked-at-build-time module is enough.
+
+### D29: The installer exports created pools and seeds stable member identity
+`CreateStorageRoles` creates the data/app pools on the live installer system and
+**exports every pool it created before the install completes** (host facade
+`zpool export <name>`; "no such pool"/"not imported" is treated as success so an
+idempotent re-run is safe). Without the export the pool is "last accessed by
+another system" and `core`'s **non-forced** `zpool import` fails — the seeded
+`Pool` sits `Degraded`/`pool_import_failed` and the storage plane is unusable
+until manually imported. The installer owns the pool it just created and is
+about to hand the OS to the installed system, so releasing it is the correct,
+least-privilege action; `zpool import -f` in `core` is deliberately **not** used
+(it can seize a pool in active use by another system and would hide an installer
+that leaves host state dirty). An export failure aborts the install rather than
+leaving a pool imported for a system that cannot adopt it.
+
+Pool members, the seed's `Disk.byIdDevice`, and the `Disk` resource's `device`
+SHALL all be the stable `/dev/disk/by-id` path, so the controller's topology
+comparison converges across the install→boot kernel device-node renaming
+(`docs/architecture/03-storage-controller.md` §5, D-S3). Real hardware
+(NVMe/SATA) always exposes by-id (WWN/serial); the qemu dev harness attaches its
+virtio-blk data disks with stable serials so `/dev/disk/by-id/virtio-<serial>`
+exists (D26). Normalizing device identity inside `core`'s comparison is a
+documented, deferred fallback for targets that cannot provide by-id — not v1
+behavior.
+
 ## 4. Reconciliation and boot
 
 The `UpdateController` owns the singleton `updates` kind and reconciles the
@@ -323,7 +387,10 @@ desired `repoUrl`+`channel` against the `Rauc` host facade (task 6.2). Each pass
 
 - **Repo/channel**: when the host repo URL or channel differs from the spec,
   reconfigure the rauc repo and re-list available bundles for the host
-  architecture (D25); idempotent no-op when converged.
+  architecture (D25); idempotent no-op when converged. The repo listing is
+  throttled (so a fast resync never hammers the HTTPS repo), but the throttle is
+  keyed on the configured URL + channel: a changed repo is listed immediately
+  rather than masked by the previous repo's cached availability.
 - **autoApply**: when `autoApply` is true and the repo offers a newer bundle than
   the active slot, stage/verify/activate through the same path as `trigger`,
   honoring `deferReboot` (D15).
@@ -394,6 +461,17 @@ touch-mode stays deferred to hardware/Linux CI. The installer e2e is intended to
 drive the real console TUI over the qemu serial console (not the `--headless`
 env path), which keeps the admin password off `/proc/cmdline`; as an interim the
 scenario currently drives the headless installer (D26).
+
+The `core-vs-real-host` scenario (D25) installs with data disks, boots the
+installed image, and requires the seed `tank` pool to reach **`Ready`** — the
+end-to-end assertion of D1 (installer export) and D2 (stable by-id member
+identity); it fails loudly on `pool_import_failed`/`pool_probe_failed`. Two
+harness prerequisites it documents: the repo CA must be baked into the image
+(the CA is generated by `serve_repo` and staged into the build sources, so the
+image is built **after** that staging step), and the qemu data disks are
+attached with stable serials so `/dev/disk/by-id/virtio-<serial>` exists (the
+serial-less virtio default has no by-id alias, which is exactly the identity
+instability D2 fixes).
 
 The harness boots edk2 with a **writable vars pflash** (`amberhold-vars.fd`,
 initialized from the firmware) shared across the install and target boots: on a
@@ -477,6 +555,14 @@ the store's serialized path and never build providers themselves.
 - **A mispublished wrong-arch bundle** → the repo `arch` field is verified
   against the host arch before staging, since rauc `compatible` is shared across
   archs (D25).
+- **An install target without by-id device aliases** → the installer prefers
+  `/dev/disk/by-id`, but an unusual virtio/loop setup can lack an alias and fall
+  back to a kernel path the kernel renames across boot, leaving adoption's
+  exact-string topology comparison reading drift (D29). Real NVMe/SATA hardware
+  always exposes by-id; the harness attaches disks with serials. Normalizing
+  device identity inside `core`'s comparison is the documented, deferred
+  fallback (it weakens the immutable-topology check and can mask a swapped
+  disk).
 
 ## 8. Migration plan
 

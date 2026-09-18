@@ -30,8 +30,9 @@ engine (ADR-0022). Shares, apps, and backup build on it in later changes.
 **Goals:**
 - A narrow, testable host-state facade (`ZFSHost`) so the storage controllers
   run and unit-test on any machine (macOS dev, no ZFS) — D-S1.
-- `Disk` discovery + SMART reconciled against a small desired set, with the
-  dedicated OS disk excluded (ADR-0011) — D-S2.
+- `Disk` discovery + SMART reconciled against a small desired set: the
+  controller creates a resource per discovered disk, with the dedicated OS disk
+  excluded (ADR-0011) — D-S2.
 - `Pool` create/import/status with immutable topology enforced (ADR-0024) — D-S3.
 - Storage CRUD API + admission routes (ADR-0018) — D-S4.
 - `amberhold.storage.*` metrics declared in the catalog (ADR-0008) — D-S5.
@@ -93,7 +94,11 @@ SnapshotHold  SnapshotRelease  SnapshotHolds
 - **Production host** (`NewZFSHost`): `zpool list -H` for existence,
   `zpool create/import/destroy/scrub`, `zpool status -j` for state/capacity/
   scan/topology, `smartctl -a -j` / `smartctl -H -j` for health, `lsblk -J` +
-  the `/dev/disk/by-id` symlink directory for discovery. Dataset primitives
+  the `/dev/disk/by-id` symlink directory for discovery. The `-j` parser accepts
+  both the OpenZFS 2.3 object-keyed document (`pools`/`vdevs` objects,
+  `vdev_type`, `scan_stats`, human-readable size strings, a pool-level `spares`
+  object) and the legacy array form, since the OS image ships OpenZFS 2.3.
+  Dataset primitives
   wrap `zfs list/create/destroy/set/inherit` and `zfs snapshot/hold/release/
   holds`; property names and values are validated against the declared v1 set
   (D-S8) before any command is built.
@@ -110,15 +115,41 @@ SnapshotHold  SnapshotRelease  SnapshotHolds
 disks exist independent of pool membership). The controller inventories
 devices via the facade, excludes the dedicated OS disk (ADR-0011), and
 converges the discovered set toward the desired `enabled`/`retired` flags.
-Read-mostly reconcile: the diff is "which discovered disks to represent"
-rather than "what to create".
+Discovery-first is literal: the controller **creates** a `Disk` resource for
+every physical disk in the inventory that no resource represents yet, and
+`Reconcile` then converges the desired `enabled`/`retired` flags. A disk
+attached after install is visible in the API and selectable for a pool without
+a seed entry or a manual `POST /v1/disks`.
 
+- **Discovery creates resources**: an optional `Discoverer` interface on the
+  controller contract is invoked by the runtime's resync (startup and every
+  resync interval), after pending deletion finalizers drain and before the kind
+  is listed and reconciled, so newly materialized resources are reconciled in
+  the same pass and an in-flight host teardown cannot race re-materialization of
+  the same identity. Discovery is best-effort: a scan failure is counted and
+  retried on the next resync and never skips reconciliation of existing
+  resources. Because discovery re-materializes host state, a discovery-first
+  kind's resources are removed by a desired-state transition, never a store
+  hard-delete.
+- **Device-keyed identity**: `spec.device` (the stable by-id id, ADR-0019) is
+  the discovery key, so a seed- or API-declared `Disk` is matched, not
+  duplicated, and its desired fields (`role`/`enabled`/`retired`/`smart`) are
+  left untouched — the seed is a desired-state overlay on discovery, and the
+  two converge idempotently. A discovered disk gets a deterministic
+  `metadata.name`/`id` derived from its device: a DNS-label-safe slug of the
+  by-id path, disambiguated by a short hash suffix in the rare case where two
+  devices sanitize to the same slug.
+- **Retain on loss, recover in place**: a previously discovered device that is
+  no longer reported is *not* deleted — its resource is retained and reported
+  `Degraded`/`device_missing`, and returns to its represented state when the
+  device reappears. Identity loss is a degraded disk, never a deletion.
 - **OS-disk exclusion (ADR-0011)**: the OS-disk device id is supplied by the
   installer's layout assignment (ADR-0007) and injected into the slice at
   wiring (`app.Config.OSDiskDevice`, empty in dev). A `Disk` spec referencing
   the OS disk is a hard `Error` (`os_disk_protected`) — never silently added
   to a pool. The OS disk itself is never represented as an assignable data
-  disk.
+  disk, and devices the OS-mirror facade reports as members are likewise not
+  represented as data disks (they are owned by the seed/OS-mirror path).
 - **Discovery**: `ListDevices` returns by-id identities (falling back to the
   kernel path when no by-id alias exists). A device the spec references but
   the inventory no longer reports is `Degraded`/`device_missing` — identity
@@ -131,6 +162,12 @@ rather than "what to create".
   reason `disk_disabled`.
 - **`retired: true`** → state `retired`, excluded from pool membership, still
   monitored for SMART health.
+- **Removal is retirement, not deletion**: `DELETE /v1/disks/{id}` (contract
+  "Retire a disk") converges `spec.retired = true` and retains the resource. A
+  hard delete cannot be honored for discovery-owned inventory — the physical
+  device is still attached, so the next discovery pass would recreate the disk
+  under the same deterministic identity. A client restores a retired disk with
+  `retired: false`.
 - **SMART** (`ADR-0021`): the controller polls `SmartInfo` per enabled disk and
   applies spec-declared thresholds (`spec.smart.maxTemperature`,
   `spec.smart.maxErrors`); the worst of raw SMART health and threshold breaches
@@ -148,10 +185,23 @@ rather than "what to create".
   desired members are not all present in the inventory (startup with pools
   absent: report and retry on a later pass, never fail hard — D3).
 - A `Pool` resource whose named pool already exists → **adopt**: import when
-  the pool is unimported, report its health/capacity/resilvering.
+  the pool is unimported, report its health/capacity/resilvering. Adoption is a
+  **non-forced** `zpool import` (`host.PoolImport`): the installer-created pool
+  was **exported** at the end of provisioning
+  (`docs/architecture/13-os-image-installer.md`, `pool-adoption-after-install`
+  D1), so the import succeeds without `-f` (which is never used — it could
+  seize a pool in active use by another system).
 - Spec topology/spares differ from the existing pool's actual layout →
   `Error`/`topology_immutable`, pool left untouched — no silent no-op, no
-  destructive change (ADR-0024: layout immutable after creation).
+  destructive change (ADR-0024: layout immutable after creation). The
+  comparison is by **stable member identity**: desired devices come from the
+  seeded `Disk` resources (`spec.device`, the installer's
+  `/dev/disk/by-id/...`) and observed members come from `zpool status` at the
+  same by-id paths, so a pool whose kernel device-node names changed across
+  install→boot is still adopted rather than reported as drift
+  (`pool-adoption-after-install` D2). The comparison stays a strict exact-string
+  match on the stable identity rather than a normalized/basename match, so a
+  genuinely swapped disk is still surfaced (see the design risk in §18).
 - The controller resolves `DiskRef.id` → device by reading `Disk` resources
   from the store (no dependency ordering, D3: an unresolvable member is
   `Pending`, retried next loop).
@@ -428,9 +478,14 @@ name-immutability, invalid cadence) and failed creates.
   ADR-0011, verified by the installer's layout assignment; a wrongly-included
   OS disk is surfaced as a hard `Error`, never silently added to a pool.
 - **`zpool status -j` topology comparison is exact-string** → pools created
-  from by-id paths report by-id paths; a pool created with kernel paths (not
-  v1) would report drift until imported with the declared layout. Documented
-  v1 constraint.
+  from by-id paths report by-id paths, and the installer seeds members by the
+  same stable by-id identity, so the comparison converges across reboot
+  (`pool-adoption-after-install` D2). An environment without by-id (e.g. a
+  virtio disk with no serial) falls back to the kernel path, which the kernel
+  can rename across boot and would read as drift; normalizing device identity
+  inside the comparison is a documented, deferred fallback (it would weaken the
+  immutable-topology check and can mask a genuinely swapped disk), not v1
+  behavior. Documented v1 constraint.
 - **Persisted status write amplification** → reconciled status writes follow
   the runtime's coalescing (D5); unchanged resources emit metrics but skip the
   status write (idempotent no-op, D9). Dataset used/referenced and snapshot
