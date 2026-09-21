@@ -59,6 +59,7 @@ nav = [
     { "ADR-0031: Core daemon controller runtime and startup sequence" = "adr/0031-core-daemon-controller-runtime-and-startup-sequence.md" },
     { "ADR-0032: rauc as the A/B boot tooling" = "adr/0032-rauc-ab-boot-tooling.md" },
     { "ADR-0033: Management-plane front door" = "adr/0033-management-plane-front-door.md" },
+    { "ADR-0034: Writable dataset mount root on the read-only OS root" = "adr/0034-writable-dataset-mount-root.md" },
   ] },
 ]
 

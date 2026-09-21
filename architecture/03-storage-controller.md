@@ -3,7 +3,7 @@
 > Discovery-phase design. Authored from the `storage-anchor` openspec change,
 > extended by `datasets-schedules`, and completed by `storage-slice-completion`
 > (pool destruction finalizer, scrub cadence consumer, disk replacement).
-> The decisions D-S1–D-S13 here fix how the `Disk`, `Pool`, `Dataset`,
+> The decisions D-S1–D-S14 here fix how the `Disk`, `Pool`, `Dataset`,
 > `Snapshot`, and `Schedule` controllers reconcile host state (zpool/smartctl)
 > against the declarative desired-state resources. The ADRs fix the *decisions*
 > (per-controller loops ADR-0017, observability ADR-0008, OS-disk exclusion
@@ -53,6 +53,9 @@ engine (ADR-0022). Shares, apps, and backup build on it in later changes.
 - Disk replacement (`POST /v1/disks/{id}/replace`) with spare auto-substitution
   or an explicit replacement disk, converging the pool spec member reference so
   a legitimate replacement is never flagged as immutable-topology drift — D-3.
+- Pool/dataset mountpoints live under one writable root (`/mnt`), so pools and
+  datasets can be created and mounted on the read-only squashfs OS root
+  (ADR-0034) — D-S14.
 
 **Non-Goals:**
 - Shares, apps, backup (later changes layered on storage).
@@ -196,12 +199,17 @@ a seed entry or a manual `POST /v1/disks`.
   destructive change (ADR-0024: layout immutable after creation). The
   comparison is by **stable member identity**: desired devices come from the
   seeded `Disk` resources (`spec.device`, the installer's
-  `/dev/disk/by-id/...`) and observed members come from `zpool status` at the
-  same by-id paths, so a pool whose kernel device-node names changed across
-  install→boot is still adopted rather than reported as drift
-  (`pool-adoption-after-install` D2). The comparison stays a strict exact-string
-  match on the stable identity rather than a normalized/basename match, so a
-  genuinely swapped disk is still surfaced (see the design risk in §18).
+  `/dev/disk/by-id/...`) and observed members come from `zpool status`, both
+  resolved to the **whole-disk** by-id identity. ZFS reports a leaf vdev as the
+  partition it created (`.../virtio-X-part1`); the host facade maps each observed
+  leaf (partition or whole disk) to its parent whole-disk by-id alias — the same
+  partition→parent mapping the mdadm facade performs for OS mirror members —
+  before the comparison (ADR-0034; supersedes the deferred fallback of
+  `pool-adoption-after-install` D2). The comparison stays a strict exact-string
+  match on that stable identity rather than a normalized/basename match, so a
+  genuinely swapped disk is still surfaced (see the design risk in §19). A leaf
+  that cannot be resolved to a by-id alias keeps its raw path (identity loss
+  degrades, never hides).
 - The controller resolves `DiskRef.id` → device by reading `Disk` resources
   from the store (no dependency ordering, D3: an unresolvable member is
   `Pending`, retried next loop).
@@ -408,7 +416,39 @@ same-window passes (D9). A schedule whose trigger is not wired still reports
 the imperative action path": the pool controller's trigger IS that imperative
 path, reached through the schedule controller rather than the API.
 
-## 16. Wiring into the daemon (D6)
+## 16. D-S14: Pool and dataset mountpoints live under one writable root
+
+The installed root is a read-only squashfs slot; the only writable persistent
+roots are the OS-disk `config/var` partition and the `/var` overlay built on it
+(ADR-0001, ADR-0013). ZFS defaults a pool's root dataset mountpoint to `/<pool>`
+and children to `/<pool>/<dataset>`, so on the installed system `zpool create`
+(and `zfs create`) try to create a directory directly under `/` and fail
+`Read-only file system`. `zpool create` reports that mount failure as a failure
+of the whole command, so the pool is created but the `Pool` surfaces
+`Error`/`pool_create_failed`.
+
+Decision (ADR-0034): the image provides one writable dataset mount root at
+`/mnt` (bind of `config/var/mnt`, brought up before ZFS import —
+`docs/architecture/13-os-image-installer.md` D30), and pools are created with
+their root dataset mountpoint set to `/mnt/<pool>`:
+
+- `core`'s `PoolCreate` passes `-m /mnt/<pool>`; ZFS creates and mounts the pool
+  root under the writable bind, and datasets inherit `/mnt/<pool>/<dataset>`.
+- The installer's `CreateStorageRoles` creates with `-m /mnt/<pool>` and then
+  exports, so the recorded mountpoint is honored by `core`'s non-forced import
+  on first boot. The live installer root is writable, so the create-time mount
+  succeeds and the export releases it (`-N` is a `zpool import` option and is
+  rejected by `zpool create`).
+- The mountpoint is **controller/installer-owned** and is not part of the
+  `Pool`/`Dataset` contract: the declared Dataset property set is
+  `quota`/`refquota`/`encryption`/`recordsize` (D-S8) and does not include
+  `mountpoint`, so a client cannot move a dataset off the root.
+- Pre-existing pools created before this decision carry a root-level mountpoint
+  (e.g. `/tank`); they are not migrated automatically (correct with
+  `zfs set mountpoint=/mnt/<pool> <pool>` or re-create). No release shipped with
+  the old convention.
+
+## 17. Wiring into the daemon (D6)
 
 In `app.New` (step 3, controller registration):
 
@@ -436,7 +476,7 @@ installer's layout assignment (ADR-0007/0011). Content-layer admission routes
 (`/v1/datasets`, `/v1/snapshots`, `/v1/schedules`) gate reads on `pools:read`
 and writes on `pools:write` like the pool/disk family (D-S4).
 
-## 17. Status shapes (contract envelope)
+## 18. Status shapes (contract envelope)
 
 The controllers write the generic contract envelope (D4) — `phase`, `reason`,
 `wanted`, `actual`, `observedGeneration`, `conditions` — with the
@@ -463,7 +503,7 @@ anomalies, `Pending` for prerequisites (members absent, pool/dataset missing),
 `Error` for protected or invalid specs (OS disk, immutable-topology drift,
 name-immutability, invalid cadence) and failed creates.
 
-## 18. Risks / Trade-offs
+## 19. Risks / Trade-offs
 
 - **Host facade becomes a leaky abstraction** → keep the interface minimal and
   driven by controller needs; let the fake grow with it; revisit only when a
@@ -477,15 +517,15 @@ name-immutability, invalid cadence) and failed creates.
 - **OS-disk exclusion must be airtight** → keyed on the OS-disk device from
   ADR-0011, verified by the installer's layout assignment; a wrongly-included
   OS disk is surfaced as a hard `Error`, never silently added to a pool.
-- **`zpool status -j` topology comparison is exact-string** → pools created
-  from by-id paths report by-id paths, and the installer seeds members by the
-  same stable by-id identity, so the comparison converges across reboot
-  (`pool-adoption-after-install` D2). An environment without by-id (e.g. a
-  virtio disk with no serial) falls back to the kernel path, which the kernel
-  can rename across boot and would read as drift; normalizing device identity
-  inside the comparison is a documented, deferred fallback (it would weaken the
-  immutable-topology check and can mask a genuinely swapped disk), not v1
-  behavior. Documented v1 constraint.
+- **`zpool status -j` topology comparison is strict-identity** → observed leaf
+  members are resolved to their whole-disk by-id identity (partition→parent
+  mapping) before comparison, so pools created from whole disks are adopted
+  rather than reported drifted on ZFS's `-partN` alias (ADR-0034). The
+  comparison remains a strict exact match on that stable identity, so a
+  genuinely swapped disk is still surfaced. An environment without any by-id
+  alias (e.g. a virtio disk with no serial) falls back to the kernel path, which
+  the kernel can rename across boot and would read as drift — the qemu harness
+  attaches serials to avoid it (D26); no basename/normalized match is used.
 - **Persisted status write amplification** → reconciled status writes follow
   the runtime's coalescing (D5); unchanged resources emit metrics but skip the
   status write (idempotent no-op, D9). Dataset used/referenced and snapshot
@@ -503,7 +543,7 @@ name-immutability, invalid cadence) and failed creates.
   the single syntax authority; the controller surfaces the engine's error
   rather than re-implementing parsing.
 
-## 19. Implementation notes (settled open questions)
+## 20. Implementation notes (settled open questions)
 
 - **`go-zfs` vs thin wrapper**: thin wrapper over `zpool`/`zfs`/`smartctl`/
   `lsblk` through the D9 `Runner`; no new dependency (open question in
