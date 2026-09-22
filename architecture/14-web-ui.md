@@ -28,7 +28,7 @@ static assets only, no server runtime, no direct host access, and admission
 project tooling, the serving topology, contract consumption, the app shell, and
 the data layer; D-W18 adds the descriptor-driven resource-screen framework and
 the first vertical slice (Identity); D-W19 adds the shared action, reference,
-structured-widget, and typed-status primitives and the Storage group.
+structured-widget, and typed-status primitives and the Storage and Shares groups.
 
 ## 2. Goals / Non-Goals
 
@@ -285,9 +285,9 @@ inline styles. A nonce-based `style-src` is a hard follow-up and deferred.
   generated form does not expose (gated by the kind's update operation and the
   principal's write capability, like every other mutating affordance). A one-time secret (token create) is shown once
   at the create boundary and never written to the query cache. The Identity
-  group — users, roles, sessions, tokens — and the Storage group (D-W19) are
-  live; the remaining groups register descriptors whose routes resolve to a
-  placeholder pending their own slices.
+  group — users, roles, sessions, tokens — and the Storage and Shares groups
+  (D-W19) are live; the remaining groups register descriptors whose routes
+  resolve to a placeholder pending their own slices.
 - **D-W19 — Contract-derived status/action manifests and the Storage-group
   patterns.** The build-time generator emits, alongside the editable spec fields,
   a read-only *status* manifest from each resource's declared `status` object and
@@ -320,7 +320,22 @@ inline styles. A nonce-based `style-src` is a hard follow-up and deferred.
   read-mostly (discovery-first, `operations.create = false`) with `replace` and
   `replace-os-member` actions; datasets/zvols validate that the path sits under
   the selected pool; and pool create/edit uses the `vdev-builder` (first full
-  vertical slice).
+  vertical slice). The Shares group — file shares and block shares — is delivered
+  on the same primitives plus two framework additions. Structured widgets are
+  **value-aware**: `WidgetProps.values` carries the current spec form values, so
+  the `share-options` widget presents the NFS host allowlist only when the
+  sibling `protocols` includes `nfs`, and merges the edit into the existing
+  `options` object so unexposed keys survive a whole-spec write. A descriptor may
+  **narrow a contract-declared enum** via `FormFieldOverride.enum` (preferred
+  over the generated `enum`/`itemEnum` for scalar and array fields), so
+  `BlockShare.authMethod` offers only the v1-accepted `none` while the escape
+  hatch and API admission stay authoritative (`chap` is rejected at the API
+  boundary, D-B5). FileShare references live datasets and grants from live users,
+  with cross-field validation mirroring the API boundary (an SMB-enabled share
+  requires at least one grant, an NFS-only share may be open, D-FS7); BlockShare
+  references a live, immutable zvol and accepts an NQN allowlist. Neither share
+  kind declares a type-name destructive strength — delete unexports/detaches and
+  destroys no data — so both keep the default delete confirmation.
 
 ## 13. Risks / Trade-offs
 

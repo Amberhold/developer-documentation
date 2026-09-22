@@ -122,30 +122,46 @@ shared). ADR-0005's "identity controller" wording is amended by the docs task.
 
 ## 5. D-FS3: POSIX UID materialization without `/etc/passwd` writes (RO root)
 
-No system account is created on the host. The UID lives in the spec store (via
-the identity service) and in samba's tdbsam passdb on `config/var`. Dataset
-root ownership is set by the `FileShare` controller to the linked user's UID
-(`chown`) so both NFS clients (via `idmapd` domain mapping, ADR-0005) and SMB
-(via tdbsam) see consistent ownership. `getpwnam()` for NAS users is a
-documented v1 limitation: tools that require a system account resolve nothing.
-The future path is a custom NSS module (`libnss_amberhold`) reading the spec
-store, baked into the image — deferred.
+No system account is created on the host and `/etc/passwd` is never written
+(ADR-0001). The UID lives in the spec store (via the identity service) and in
+samba's tdbsam passdb on `config/var`. To make `getpwnam()` resolve NAS users —
+required by `pdbedit -a -t -u <user>`, which resolves the account before writing a
+passdb entry — the identity service materializes the allocated username↔UID map
+into the image's `libnss-extrausers` files on the writable `/var` overlay
+(`/var/lib/extrausers/{passwd,group}`, config/var-backed). The image ships
+`libnss-extrausers` and adds the `extrausers` source to the passwd/group
+nsswitch chain, so a lookup resolves without any write under the read-only root.
+The materialized map is derived state: it is rebuilt idempotently from the
+ledger on every pass (atomic temp + rename), so a missed reclaim is healed on
+the next reconcile. Entries use a home of `/` and `/usr/sbin/nologin` as the
+shell; the image lists that shell in `/etc/shells` so samba's account check
+accepts it.
 
-**Rationale:** ADR-0001 forbids writing under `/`; `/etc/passwd` is RO. tdbsam
-holds username↔UID independently of the system passwd, and samba resolves the
-mapping itself. Alternatives rejected: bind-mounting a generated `/etc/passwd`
-(violates the RO-root convention); a custom NSS module (real systems
-engineering, must be baked into the image — deferred, recorded as the future
-path).
+Dataset root ownership is set by the `FileShare` controller to the linked user's
+UID (`chown`) so both NFS clients (via `idmapd` domain mapping, ADR-0005) and SMB
+(via tdbsam) see consistent ownership.
 
-**Integration note (pdbedit):** `pdbedit -a` normally prompts for a password
-and resolves the Unix user via `getpwnam`. The host primitive (`PdbeditUpsert`)
-runs `pdbedit -a -u <username>` through the D9 `Runner` with an argument
-slice; the interactive prompt and the missing system account are integration
-surface concerns — the design open questions below record the expected Linux
-verification (a stdin-fed `-t` variant, or a placeholder passdb password) once
-the D9 runner gains a stdin writer. The unit surface (arg slices, typed
-`ExitError`) is fully covered over the fake runner.
+**Rationale:** ADR-0001 forbids writing under `/`; `/etc/passwd` is RO. The
+allocated map is materialized on the writable overlay and exposed through a
+stock NSS module rather than by mutating the system passwd. tdbsam holds
+username↔UID independently of the system passwd, and samba resolves the mapping
+itself. Alternatives rejected: bind-mounting a generated `/etc/passwd`
+(violates the RO-root convention); creating real system accounts with `useradd`
+(`/etc/passwd` is RO); a custom `libnss_amberhold` module (real systems
+engineering and couples NSS to the store format — deferred, remains the future
+alternative to the stock module).
+
+**Integration note (pdbedit):** `pdbedit -a` normally prompts for a password and
+resolves the Unix user via `getpwnam`. The host primitive (`PdbeditUpsert`) runs
+`pdbedit -a -t -u <username>` through the D9 `Runner`'s stdin path: `-t`
+(`--password-from-stdin`) makes the prompt non-interactive, and the placeholder
+password (two empty lines) materializes the entry without a usable credential —
+samba's `null passwords = no` default refuses empty-password authentication, so
+SMB password provisioning stays a separate follow-up. The account resolves
+through the image-provided `libnss-extrausers` link (the materialized map
+above), so materialization succeeds for a NAS user with no system account. The
+unit surface (argument slice + fed stdin, typed `ExitError`) is covered over the
+fake runner, and the shipped invocation is verified on the macOS harness guest.
 
 ## 6. D-FS4: NFS grants live in the existing `options` bag — no contract delta
 
@@ -325,13 +341,16 @@ In `app.New` (step 3, controller registration):
 ## 13. Samba state/lock directory layout on `config/var`
 
 Samba needs writable state beyond the config (lock directory, tdbsam passdb,
-cache). Per ADR-0011/0013 these live on the OS-disk `config/var` partition;
-the image ships the samba `state directory`, `lock directory`, `cache
-directory`, and `private dir` pointed at `config/var/samba/...`, with the
-tdbsam passdb (`passdb.tdb`) and the generated `smb.conf` (reached via the
-`/etc/smb.conf` symlink) under it. This change bakes the requirement into the
-shares design so the `infra` image work (a later change) ships the layout; the
-daemon never creates host files outside `config/var`.
+cache). Per ADR-0011/0013 these live on the OS-disk `config/var` partition. The
+installed image ships the layout: the generated `smb.conf` is reached through
+the `/etc/smb.conf` symlink (with the daemon's default `/etc/samba/smb.conf`
+chaining to it, so smbd, `testparm`, and `pdbedit` all read the regenerated
+file), core renders `state directory`, `lock directory`, `cache directory`, and
+`private dir` under `config/var/samba/{state,lock,cache,private}` into the
+generated `[global]` stanza (design D-FS5), and the image creates those
+directories at boot through `tmpfiles.d`, ordering `smbd`/`nmbd` after
+`config-var.mount`. The tdbsam passdb (`passdb.tdb`) lands in the private dir.
+The daemon never creates host files outside `config/var`.
 
 ## 14. `idmapd` domain mapping (NFS UID alignment)
 
@@ -351,9 +370,10 @@ NAS user.
   state-dir layout on `config/var` is fixed here (§13); the image bakes it in.
 - **`sharenfs` variance across ZFS versions** → the image pins the ZFS userland
   (ADR-0001); verified on the Linux integration surface.
-- **tdbsam without system accounts**: some tools call `getpwnam()` for NAS
-  users and fail → documented v1 constraint; the NSS module is the recorded
-  future path (D-FS3).
+- **tdbsam without system accounts**: tools that call `getpwnam()` for NAS
+  users resolve through the image-provided `libnss-extrausers` link (D-FS3),
+  backed by the identity-materialized map; a custom `libnss_amberhold` module
+  remains the recorded future alternative.
 - **Reload semantics**: `smbcontrol reload-config` may not pick up every
   section change → a reload failure is a retriable reconcile error (D9), never
   a silent partial export; samba config is regenerable on the next resync.
@@ -383,7 +403,8 @@ NAS user.
   with separators dashed) is not injective — a collision across the desired
   set appends a short deterministic hash suffix so two distinct datasets never
   render a duplicate section.
-- **pdbedit password prompt / system-account resolution**: the D9 runner has no
-  stdin writer yet and pdbedit resolves Unix accounts via `getpwnam` — recorded
-  as the integration-surface verification (D-FS3/§5) with the future runner
-  stdin extension and NSS module as the follow-ups.
+- **pdbedit password provisioning**: the host primitive runs `pdbedit -a -t -u
+  <user>` and feeds a placeholder (empty) password on stdin, so the passdb entry
+  materializes non-interactively; user resolution via `getpwnam` is satisfied by
+  the image-provided `libnss-extrausers` link (D-FS3). A real SMB password
+  (user-set or generated) is the recorded follow-up.

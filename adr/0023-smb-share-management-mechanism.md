@@ -58,3 +58,28 @@ SMB share management is samba-based, driven by the daemon:
 - Per-user SMB grants map 1:1 to the NAS user DB link (ADR-0005); deleting a user
   removes their passdb entry and share-section entries in the same reconcile
   cycle.
+
+## Shipped layout and user resolution (amendment)
+
+The mechanism shipped as:
+
+- `/etc/smb.conf` is an image-baked symlink to `/config/var/samba/smb.conf` (the
+  daemon's write path), and the daemon's default `/etc/samba/smb.conf` chains to
+  `/etc/smb.conf`, so `smbd`, `testparm`, and `pdbedit` all read the regenerated
+  file without a service drop-in.
+- The generated `[global]` stanza declares `state directory`, `lock directory`,
+  `cache directory`, and `private dir` under
+  `/config/var/samba/{state,lock,cache,private}`; the image creates them at boot
+  (`tmpfiles.d`) and orders `smbd`/`nmbd` after `config-var.mount`. The tdbsam
+  passdb (`passdb.tdb`) lives in the private dir.
+- NAS users have no system account, so the identity service materializes the
+  allocated username↔UID map into the image-shipped `libnss-extrausers` files on
+  the writable `/var` overlay (`/var/lib/extrausers/{passwd,group}`, with
+  `extrausers` added to the passwd/group nsswitch chain). `pdbedit -a -t -u <user>`
+  therefore resolves the account via `getpwnam()` with no write under the
+  read-only root; the materialized shell `/usr/sbin/nologin` is listed in
+  `/etc/shells` so samba's account check accepts it.
+
+The passdb is tdbsam managed through `pdbedit` (the decision's `smbpasswd`
+wording above predates that implementation choice); the share-regeneration and
+single-sourcing principles are unchanged.
