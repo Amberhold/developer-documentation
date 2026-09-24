@@ -364,7 +364,38 @@ question below); this change's contribution is the UID alignment itself — the
 allocator guarantees SMB (tdbsam) and NFS (dataset owner) agree on one UID per
 NAS user.
 
-## 15. Risks / Trade-offs
+## 15. NFS server runtime (fixed ports, `zfs-share`, single-LAN binding)
+
+The NFS backend only sets or clears the dataset's `sharenfs` property (§6,
+ADR-0009); the actual export is performed by ZFS's share path, which on Linux
+shells out to the kernel NFS server userspace (`exportfs`/`rpc.nfsd`/
+`rpc.mountd`). The installed image therefore ships and enables that userspace
+(`add-nfs-server-and-share-ports`; package list and bake in
+`docs/architecture/13-os-image-installer.md` D31): `nfs-kernel-server`
+(`rpc.nfsd`, `rpc.mountd`, `exportfs`), `nfs-common` (`rpc.statd` and the client
+tools), and `rpcbind` (the portmapper). Without it a dataset whose `sharenfs`
+property is set is never actually exported and an NFS `FileShare` cannot serve
+traffic.
+
+- **Fixed auxiliary ports.** The image pins `nfsd` 2049, `mountd` 20048, `statd`
+  32765, and `rpcbind` 111 (the protocol fixes rpcbind) in `/etc/nfs.conf`.
+  Slirp `hostfwd` can only forward known ports, so a dynamic `mountd`/`statd`
+  would make NFSv3 unreachable through the dev harness; fixed ports are also
+  firewall-friendly.
+- **`zfs-share` at boot.** `zfs-share.service` runs `zfs share -a`, exporting
+  every dataset whose `sharenfs` property is set — including across a reboot, so
+  a converged `FileShare` is served again after restart without waiting for a
+  core reconcile pass.
+- **Single-LAN binding.** When the `network` resource declares no data plane (the
+  v1 default), a share binds on the single LAN; the export's client allowlist is
+  the `sharenfs` grant built from `spec.options.nfs.hosts` (§6). Under the dev
+  harness a host-originated share connection appears to the guest as the slirp
+  gateway `10.0.2.2`, so a grant must allow it (or use the `sharenfs=on`
+  all-clients default).
+
+The NFS backend itself is unchanged: no contract delta and no `core` change.
+
+## 16. Risks / Trade-offs
 
 - **RO-root samba state**: samba needs writable state beyond config → the
   state-dir layout on `config/var` is fixed here (§13); the image bakes it in.
@@ -388,7 +419,7 @@ NAS user.
   runtime's coalescing (D5); unchanged shares emit metrics but skip the status
   write.
 
-## 16. Implementation notes (settled open questions)
+## 17. Implementation notes (settled open questions)
 
 - **Samba state/lock directory layout on `config/var`**: `config/var/samba`
   with `smb.conf`, `passdb.tdb`, lock/cache/state dirs (§13); baked into the

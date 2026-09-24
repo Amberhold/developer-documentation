@@ -187,6 +187,26 @@ a seed entry or a manual `POST /v1/disks`.
   raidz2). Creation is deferred to `Pending`/`pool_members_absent` while the
   desired members are not all present in the inventory (startup with pools
   absent: report and retry on a later pass, never fail hard — D3).
+- A `Pool` resource that has **already converged** and whose pool is no longer
+  present on its members (re-imaged, wiped, or swapped disks) → **not** created
+  again from the spec. The controller reports `Degraded`/`pool_missing` and
+  requeues slowly, so a member that silently lost its pool is surfaced rather
+  than handed a fresh, empty one. The evidence that a spec has converged is a
+  durable marker in `status.actual` (`everConverged`), set whenever the
+  controller observes the pool — created, imported, adopted, reported
+  fine/degraded, or a status read that proved it exists (`pool_status_failed`) —
+  and carried forward by every later status, including a `Pending` pass and a
+  transient failure, so a single non-observing pass cannot erase it.
+  Create-on-appearance therefore applies only to a never-converged spec — one
+  whose status has never recorded an observed pool: no status yet, a `Pending`
+  pass (members had not appeared, so the pool never existed), or a prior
+  transient failure (`pool_create_failed`, `pool_import_failed`,
+  `pool_probe_failed`, `device_scan_failed`) that never produced a pool. Such a
+  failure retries create-on-appearance rather than parking the resource at
+  `pool_missing`. The explicit re-create is deleting and
+  re-creating the `Pool` resource (a fresh, never-converged spec reusing the
+  same create-on-appearance path), or the installer-seed first-boot import path,
+  which is unaffected.
 - A `Pool` resource whose named pool already exists → **adopt**: import when
   the pool is unimported, report its health/capacity/resilvering. Adoption is a
   **non-forced** `zpool import` (`host.PoolImport`): the installer-created pool

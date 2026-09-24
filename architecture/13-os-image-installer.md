@@ -1,7 +1,7 @@
 # OS Image, Installer, and Update Delivery
 
 > Discovery-phase design. Authored from the `os-image-installer` openspec change.
-> The decisions D1–D29 here fix how the Amberhold OS is **built** (mkosi image
+> The decisions D1–D31 here fix how the Amberhold OS is **built** (mkosi image
 > build for arm64 and amd64), **installed** (live-ISO console TUI), and
 > **updated** (rauc A/B bundles through a per-arch repo channel), and how the
 > install-time decisions reach the spec store (seed-manifest handoff), plus the
@@ -117,6 +117,16 @@ Declarative Debian image builder; injects the `core` binary and web-ui static at
 build time; produces the squashfs slot images, per-slot kernel+initramfs, and
 ESP content. Pinned package versions per ADR-0001.
 
+The staged build sources are consumed at a **fixed mount path**,
+`/work/src/build`. The documented invocation and CI pass an explicit
+build-sources target, `--build-sources <staged-dir>:/build`, so the mount target
+is part of the invocation rather than an implicit mkosi default (a bare
+`--build-sources <dir>` lands the tree at `/work/src`, not `/work/src/build`).
+`90-bake-amberhold.sh.chroot` and the live-ISO bake both read `$BUILD` at that
+path, and the OS bake preflight fails with a diagnostic naming the expected path
+when `$BUILD/core` is absent — a mount-target mismatch fails immediately instead
+of at an opaque post-install step.
+
 ### D5: ext4 for the container's writable partitions
 Spec store + `config/var` on ext4 inside the container; slots remain squashfs.
 Matches the current bbolt host; xfs/f2fs deferred as unneeded.
@@ -143,6 +153,20 @@ Factor enrollment needs physical presence (YubiKey insertion, recovery
 passphrase) — a console TUI on a bootable ISO is the honest fit. Web-based
 rejected (conflicts with the no-direct-host-access posture and complicates
 enrollment); PXE deferred.
+
+The installer **flushes and releases the ESP before reporting success**. It
+mounts the OS disk's ESP(s) for `rauc install` (the primary at `/boot/efi`, and
+a mirror's second member at `/boot/efi-b`) so the `rauc-post-install` hook can
+copy the per-slot kernel+initramfs into them. After `rauc install` returns,
+`install.WriteOSImage` calls `sync` and then unmounts every ESP it mounted,
+failing the install with a diagnostic naming the ESP if the flush or unmount
+fails. This makes the per-slot boot files durable on disk the moment the
+installer reports success, independent of the caller's teardown timing — an
+abrupt termination of the installing system (for example, a test harness killing
+the guest) can no longer leave 0-byte `vmlinuz`/`initrd` files on the ESP. The
+hook also ends with a `sync` as cheap defense-in-depth, which matters on an
+OS-initiated update where the hook owns the ESP mounts and there is no later
+teardown.
 
 ### D8: Seed manifest handoff (option C)
 The installer writes a versioned, validated seed manifest to the spec-store
@@ -405,6 +429,31 @@ root:
 - Pools created before this decision keep a root-level mountpoint and are not
   migrated automatically (ADR-0034).
 
+### D31: The image ships and runs the NFS server for file-share exports
+
+`core`'s NFS backend drives the ZFS `sharenfs` dataset property, but the actual
+export is performed by ZFS's share path, which on Linux shells out to the kernel
+NFS server userspace (`exportfs`/`rpc.nfsd`/`rpc.mountd`). The image previously
+shipped only the SMB server, so a dataset with `sharenfs` set was never exported
+and an NFS `FileShare` could not serve traffic. The OS image now
+(`add-nfs-server-and-share-ports`; shares design §15 in
+`docs/architecture/04-shares-controller.md`):
+
+- adds `nfs-kernel-server`, `nfs-common`, and `rpcbind` to `[Content] Packages`
+  (`os-image/mkosi/mkosi.conf`);
+- bakes `/etc/nfs.conf` with the auxiliary ports pinned — `nfsd` 2049, `mountd`
+  20048, `statd` 32765 (`rpcbind` 111 is fixed by the protocol) — so the exports
+  are reachable through the port-forwarding dev harness (slirp `hostfwd` can
+  only forward known ports) as well as a normal network, and are
+  firewall-friendly;
+- enables `nfs-server.service`, `rpcbind.socket`/`rpcbind.service`, and
+  `zfs-share.service`, and loads the `nfsd` module at boot, in the bake postinst
+  (`os-image/mkosi/mkosi.postinst.d/90-bake-amberhold.sh.chroot`). `zfs-share`
+  runs `zfs share -a`, re-exporting `sharenfs` datasets across a reboot.
+
+The installer live ISO does not serve shares and is unchanged. No contract change
+and no `core` change: the NFS backend already drives `sharenfs`.
+
 ## 4. Reconciliation and boot
 
 The `UpdateController` owns the singleton `updates` kind and reconciles the
@@ -523,6 +572,36 @@ selection and the boot chain are still exercised. A real UEFI install has
 efivars and still fails hard if entry creation fails, so a production system is
 never left unable to switch slots.
 
+Before it boots the installed target, the harness **verifies the installed
+boot files** (D26, D3): `wait_install` waits for the `installer ok` marker, gives
+the guest a bounded flush window, then calls
+`verify_installed_boot_files <image> <bootname...>`. That helper is
+self-contained on the host — no Lima and no loop mounts — parsing the image's
+GPT to locate the EFI System Partition and then the ESP's FAT32 directory
+entries (including long-file-name entries, since `amberhold` exceeds 8.3) to
+assert each `/amberhold/<bootname>/{vmlinuz,initrd}` has a non-zero size. A
+missing or zero-size boot file fails the install with a diagnostic naming the
+file, so a truncated install surfaces immediately instead of looping on the
+edk2 firmware assert. The harness's qemu drives also use `cache=writethrough`
+(and the installer's own sync+unmount teardown above), so a guest killed with
+`SIGTERM` right after `installer ok` cannot drop the last ESP writes.
+
+In addition to the management front door (`:443`) and the update repo, `boot_vm`
+forwards the guest's data-plane share listeners to the host so an operator can
+mount the guest's SMB/NFS shares from the dev Mac for interactive testing
+(`add-nfs-server-and-share-ports`): SMB `:445`/`:139` and NFS `:2049`, plus
+rpcbind `:111`, mountd `:20048`, and statd `:32765` (tcp and udp). Host ports
+default to unprivileged values (`1445`/`1139`/`12049`/`1111`/`12048`/`13265`) so
+the harness needs no root and does not collide with a host SMB/NFS server, and
+are overridable through `AMBERHOLD_SMB_PORT`/`AMBERHOLD_NETBIOS_PORT`/
+`AMBERHOLD_NFS_PORT`/`AMBERHOLD_RPCBIND_PORT`/`AMBERHOLD_MOUNTD_PORT`/
+`AMBERHOLD_STATD_PORT`. Two caveats are printed at boot: a host-originated share
+connection appears to the guest as the slirp gateway `10.0.2.2`, so an NFS
+`hosts` grant / SMB access rule must allow it (or use the single-LAN default);
+and because the host forwards non-standard ports, an NFSv3 client must be given
+them explicitly (`mount -t nfs -o vers=3,port=<nfs>,mountport=<mountd> ...`),
+with NFSv4 (`vers=4,port=<nfs>`) the simpler fallback.
+
 ## 5. Seed-manifest handoff
 
 ```
@@ -531,6 +610,7 @@ installer (live ISO, TUI)
    │  2. partition / md0 / LUKS2
    │  3. enroll factors + policy  (ADR-0011)
    │  4. rauc install initial bundle (verified vs ISO trust anchor, D21)
+   │  4a. sync + unmount the ESP(s)   (per-slot boot files durable, D7)
    │  5. storage roles: fresh zpool create / recover zpool import (D9)
    │  6. network + admin capture   (ADR-0014, D18)
    └─► writes seed manifest → spec-store partition (JSON, versioned, D8/D19/D20)
