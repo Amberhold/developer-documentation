@@ -83,3 +83,49 @@ The mechanism shipped as:
 The passdb is tdbsam managed through `pdbedit` (the decision's `smbpasswd`
 wording above predates that implementation choice); the share-regeneration and
 single-sourcing principles are unchanged.
+
+## Usable passdb credentials (amendment)
+
+A passdb entry with an empty/placeholder password is unusable: samba's
+`null passwords = no` default refuses empty-password authentication with
+`STATUS_LOGON_FAILURE`. The mechanism therefore materializes the **NT hash of
+the principal's NAS password** into tdbsam:
+
+- **One NAS credential.** The NAS password remains the single credential (the
+  decision's 1:1 identity link). On set/change through the API, `core` derives
+  the NT hash as `MD4(UTF-16LE(password))` and records it alongside the Argon2id
+  hash as internal credential state on the `User` resource. It is never returned
+  by the API and never echoed in status. The derivation is shared with the
+  installer (`contracts/seed`, see the credential-params note).
+- **`pdbedit --set-nt-hash`.** The host primitive ensures the entry exists
+  (`pdbedit -a -t -u <user>` when absent, resolving `getpwnam()` through the
+  `libnss-extrausers` link) and then installs the credential with
+  `pdbedit --set-nt-hash=<hex> -u <user>`. A converged pass with a matching hash
+  is a read-only no-op.
+- **Bootstrap admin from the seed.** The installer derives the same NT hash from
+  the bootstrap plaintext and writes it as `admin.smbNtHash`; `core` folds it
+  into the admin's credential state at first boot. The seed still carries no
+  plaintext, and the seeded admin can authenticate over SMB without first
+  changing their password.
+- **Password-less principals are reported.** An SMB grant whose principal has no
+  local password (an OIDC/federated principal) has no derivable NT hash. The
+  grant is reported as unsupported (`Degraded`/`smb_credential_unavailable`), no
+  credential-less passdb entry is created, and NFS and credentialed SMB grants
+  continue to export.
+- **Disabled accounts cannot authenticate.** A disabled `User` is gated out of
+  SMB by the same account-state rule as sign-in: the backend never installs (and
+  removes any stale) passdb credential for it, while the grant stays in the
+  section's `valid users` so the section never renders open. A disabled account
+  is intentional, not an unsupported grant, so it is **not** reported
+  `Degraded`/`smb_credential_unavailable`.
+
+**Upgrade behavior.** A passdb entry that predates this amendment carries the
+placeholder credential (or no NT hash at all), so the backend cannot tell it
+apart from an entry whose principal is credential-less: the entry is **removed**
+on the next share reconcile rather than left authenticating, and a share that
+still grants that principal reports `Degraded`/`smb_credential_unavailable`
+until the user's password is re-set (which derives and writes the NT hash). The
+policy is fail-closed and matches the runtime rule for password-less principals;
+it is documented here so the upgrade notes and the code agree. A fresh install
+or reinstall instead re-seeds `admin.smbNtHash`, so the bootstrap admin is
+usable at first share reconcile.

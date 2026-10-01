@@ -105,7 +105,10 @@ UID through `identity.Allocator.Allocate` and reports
 `status.principalSource = oidc` — the same convergence path as a local user.
 Reuse on later logins via `Service.UserByUsername`; the existing record is
 returned without a new UID allocation. The `source` on the created `Session` is
-`oidc`.
+`oidc`. Both `oidcSubject` and `principalSource` are controller-owned (contract
+`readOnly`): the API boundary drops any client-supplied value and preserves the
+stored link on update, so a client can never re-point a principal at an IdP
+subject or claim to be federated.
 
 ### D-O5: Reject on username collision
 

@@ -69,8 +69,13 @@ items left by this ADR:
   in-flight reconcile could resurrect a revoked token). Admission rejects
   revoked tokens as unauthenticated. Password verification bounds Argon2id
   parameters (`m ≤ 1 GiB, t ≤ 10, p ≤ 8`) so a planted record cannot force
-  unbounded derivation cost, and a client-supplied `passwordHash` is never
-  accepted at the API boundary — plaintext `password` is hashed server-side.
+unbounded derivation cost, and a client-supplied `passwordHash` is never
+accepted at the API boundary — plaintext `password` is hashed server-side. The
+controller-owned identity markers (`oidcSubject`, `principalSource`) are
+likewise never taken from a client input, and a spec update that omits `enabled`
+preserves the stored account state rather than silently re-enabling a
+deliberately-disabled account (re-enabling requires an explicit `enabled:
+true`).
 - **The session store is in-memory-backed** (change design D1): sessions are
   short-lived and derived from a login event, so an in-memory store is honest.
   The durable artifacts are the NAS user DB and the `Token` records in the spec

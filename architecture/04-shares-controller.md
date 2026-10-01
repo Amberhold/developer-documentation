@@ -152,16 +152,27 @@ engineering and couples NSS to the store format — deferred, remains the future
 alternative to the stock module).
 
 **Integration note (pdbedit):** `pdbedit -a` normally prompts for a password and
-resolves the Unix user via `getpwnam`. The host primitive (`PdbeditUpsert`) runs
-`pdbedit -a -t -u <username>` through the D9 `Runner`'s stdin path: `-t`
-(`--password-from-stdin`) makes the prompt non-interactive, and the placeholder
-password (two empty lines) materializes the entry without a usable credential —
-samba's `null passwords = no` default refuses empty-password authentication, so
-SMB password provisioning stays a separate follow-up. The account resolves
-through the image-provided `libnss-extrausers` link (the materialized map
-above), so materialization succeeds for a NAS user with no system account. The
-unit surface (argument slice + fed stdin, typed `ExitError`) is covered over the
-fake runner, and the shipped invocation is verified on the macOS harness guest.
+resolves the Unix user via `getpwnam`. The host primitive (`PdbeditUpsert`)
+ensures the entry exists — running `pdbedit -a -t -u <username>` through the D9
+`Runner`'s stdin path when the observed passdb has no entry (`-t`,
+`--password-from-stdin`, makes the prompt non-interactive) — and then installs a
+usable credential with `pdbedit --set-nt-hash=<hex> -u <username>`. The hex is
+the **NT hash of the principal's NAS password** (`MD4(UTF-16LE(password))`),
+stored as internal credential state on the `User` resource (never returned by
+the API) and derived on password set/change or folded from the installer seed
+for the bootstrap admin. The account resolves through the image-provided
+`libnss-extrausers` link (the materialized map above), so materialization
+succeeds for a NAS user with no system account. A grant whose principal has no
+local password (an OIDC/federated principal) has no derivable NT hash: no entry
+is created for it and the share reports `Degraded`/`smb_credential_unavailable`.
+A disabled account is gated out the same way the sign-in path gates it — no
+credential is installed and a stale entry is removed — but it is intentional, so
+the share stays `Ready` and the grant stays in `valid users` (§9). A stored value
+that is not a well-formed NT hash is normalized to "no credential", so a
+corrupted entry is never passed to `pdbedit` and never leaves the share
+reporting converged over an entry that was never written.
+The unit surface (argument sequence, typed `ExitError`) is covered over the fake
+runner, and the shipped invocation is verified on the macOS harness guest.
 
 ## 6. D-FS4: NFS grants live in the existing `options` bag — no contract delta
 
@@ -169,10 +180,19 @@ The NFS client allowlist is `spec.options.nfs.hosts` (e.g.
 `["192.168.1.0/24", "host.example.com"]`), consumed only when `protocols`
 includes `nfs`. The `FileShare` schema's `options` object is already
 `additionalProperties: true`, so **no schema change is required** (verified in
-`contracts/openapi/v1.yaml` by the contracts task). The NFS backend builds the
-`sharenfs` value from the list (`rw=<host1>:<host2>...`; an empty list exports
-to all clients, the `sharenfs=on` semantics) and applies it via the host
-facade:
+`contracts/openapi/v1.yaml` by the contracts task). The NFS backend builds an
+explicit `sharenfs` value from the list that preserves the `sharenfs=on`
+defaults and always adds `insecure` (ADR-0009 amendment):
+
+- no hosts: `rw=*,crossmnt,no_subtree_check,insecure` (exports to all clients),
+- hosts: `rw=<host1>:<host2>,crossmnt,no_subtree_check,insecure`.
+
+The explicit list keeps the generated value deterministic and testable (versus
+the opaque `on`) and makes the export mountable by a client whose NFS requests
+originate from an unprivileged source port — notably the `qemu`/slirp dev
+harness, whose `hostfwd` cannot preserve a privileged port (`MNT3ERR_ACCES`
+otherwise). Host/IP grants still gate which clients may mount. It is applied via
+the host facade:
 
 - `zfs set sharenfs=<value> <dataset>` to apply,
 - `zfs inherit sharenfs <dataset>` to clear when NFS is dropped from
@@ -198,10 +218,17 @@ Grants reference NAS users by username; the backend converges the tdbsam
 passdb to the **union of granted users across all shares** — a user granted on
 several shares keeps their entry while any share references them, and a
 removed grant or deleted user loses their entry in the same reconcile cycle.
-Reload is `smbcontrol all reload-config` (no service restart; samba runs from
-the image), issued **once per pass only when something changed** — a converged
-regenerate is a no-op (D9), verified by config diff against the observed file
-and the observed `pdbedit -L` user list.
+Each credentialed grant carries the NT hash of the user's NAS password, which
+the backend installs via `pdbedit --set-nt-hash` and converges when the observed
+hash differs (so a password change re-provisions the entry on the next pass). A
+grant whose principal has no local password is not materialized and is reported
+as `Degraded`/`smb_credential_unavailable`; a grant to a disabled account is
+likewise never materialized (any stale entry is removed) but is neither reported
+nor made `Degraded` (§9). Reload is `smbcontrol all
+reload-config` (no service restart; samba runs from the image), issued **once
+per pass only when something changed** — a converged regenerate is a no-op (D9),
+verified by config diff against the observed file and the observed
+`pdbedit -L -w` (username + NT hash) user list.
 
 The generated config is fully owned by the daemon (derived state, ADR-0002):
 a minimal `[global]` stanza plus the share sections, written atomically (temp +
@@ -278,6 +305,28 @@ on the error pass, so they fire on every reconcile — a one-pass tripwire would
 let the next resync converge the change while the old host state leaked
 (dataset re-export under a new name with the old `sharenfs` export orphaned).
 
+**Password-less SMB grants:** a principal with no local password (an
+OIDC/federated principal, or a local user whose password has not been set since
+the credential-link change) has no derivable SMB credential. Such a grant is
+recorded in `status.actual.smbCredentialUnavailable`, no credential-less passdb
+entry is created for it, and the share reports
+`Degraded`/`smb_credential_unavailable` while NFS and the credentialed SMB grants
+continue to export. This mirrors `chown_failed`: the export is not blocked, the
+unsupported grant is surfaced rather than silently dropped or silently broken.
+A stored credential the backend cannot normalize to a 32-hex NT hash is
+classified the same way, so the backend never refuses to write it while the
+share reports converged.
+
+**Disabled accounts:** a disabled `User` is gated out of SMB by the same
+account-state rule the sign-in path applies. Its credential is never installed
+and any stale passdb entry is removed on the next pass, but — because a disabled
+account is a deliberate administrative state, not an unsupported grant — it is
+not recorded in `smbCredentialUnavailable` and does not flip the share
+`Degraded`. The grant stays in the section's `valid users` (removing it would
+change the section's access list and could render a single-grant section open),
+so a disabled principal can see the share and simply fails to authenticate,
+exactly as at sign-in.
+
 ## 10. D-FS8: Metrics follow the catalog
 
 The backends/controller emit the already-declared
@@ -307,14 +356,16 @@ contract-specific fields under `status.actual`:
 - `smb`: `{enabled, users}` — the effective SMB grants;
 - `nfs`: `{enabled, hosts}` — the effective NFS allowlist;
 - `ownerUid` when a grant materialized ownership;
-- `droppedUsers` / `pendingUsers` when lifecycle drift was absorbed.
+- `droppedUsers` / `pendingUsers` when lifecycle drift was absorbed;
+- `smbCredentialUnavailable` when an SMB grant has no derivable credential.
 
 Phases: `Ready`/`share_exported` when converged, `Pending`/`dataset_missing`
 for the missing-dataset prerequisite (timed retry, never a hard failure),
-`Degraded` for host probes and chown failures, `Error` for invalid specs,
-`grant_invalid` host lists, and `name_immutable` dataset changes on an existing
-share (mirrors the Dataset controller's immutability rule). An unchanged share
-emits metrics but skips the status write (idempotent no-op, D9).
+`Degraded` for host probes, chown failures, and password-less SMB grants
+(`smb_credential_unavailable`), `Error` for invalid specs, `grant_invalid` host
+lists, and `name_immutable` dataset changes on an existing share (mirrors the
+Dataset controller's immutability rule). An unchanged share emits metrics but
+skips the status write (idempotent no-op, D9).
 
 ## 12. Wiring into the daemon (D6)
 
@@ -412,6 +463,24 @@ The NFS backend itself is unchanged: no contract delta and no `core` change.
   hazard by nature → ADR-0010 explicitly supports the combo; UID alignment
   keeps ownership coherent; no mitigation beyond the ADR's supported-matrix
   stance.
+- **Always-`insecure` NFS export**: the privileged-source-port requirement is
+  waived (ADR-0009 amendment) so unprivileged-source-port clients (the slirp
+  dev harness) can mount → host/IP grants remain the access gate; there is no
+  `secure`/`insecure` toggle in v1.
+- **NT hash stored at rest**: the SMB credential (NT hash) is recorded on the
+  `User` resource in the spec store, which lives on the encrypted OS-disk LUKS
+  container (ADR-0011) → it is never exposed by the API and never echoed in
+  status; `--set-nt-hash` installs it without plaintext ever reaching the
+  passdb.
+- **NT hash visible in the `pdbedit` argv**: `--set-nt-hash=<hex>` is observable
+  in `/proc/<pid>/cmdline` for the duration of the call → inherent to the
+  `pdbedit` interface (accepted limitation); the value is a validated 32-hex
+  string passed as a single argv element (no shell string, no injection
+  surface), and the daemon runs as root on the appliance.
+- **`--set-nt-hash` create-then-set is two shell-outs and can partially fail** →
+  the primitive reports a typed error and the reconcile retries the whole pass;
+  the share reports `Error`/`smb_reconcile_failed` until it converges, never a
+  silent partial export.
 - **One share per dataset** (v1 simplification): a second `FileShare` over the
   same dataset is rejected at the API; the resource-name convention would
   otherwise alias the deletion finalizer and samba section.
@@ -434,8 +503,11 @@ The NFS backend itself is unchanged: no contract delta and no `core` change.
   with separators dashed) is not injective — a collision across the desired
   set appends a short deterministic hash suffix so two distinct datasets never
   render a duplicate section.
-- **pdbedit password provisioning**: the host primitive runs `pdbedit -a -t -u
-  <user>` and feeds a placeholder (empty) password on stdin, so the passdb entry
-  materializes non-interactively; user resolution via `getpwnam` is satisfied by
-  the image-provided `libnss-extrausers` link (D-FS3). A real SMB password
-  (user-set or generated) is the recorded follow-up.
+- **pdbedit credential provisioning**: the host primitive creates the entry
+  when absent (`pdbedit -a -t -u <user>`, non-interactive via the D9 stdin path;
+  user resolution via `getpwnam` is satisfied by the image-provided
+  `libnss-extrausers` link, D-FS3) and installs the credential with `pdbedit
+  --set-nt-hash=<hex> -u <user>`, where the hex is the NT hash of the user's NAS
+  password. A converged pass with a matching hash is a read-only no-op; a
+  credential-less principal (OIDC/federated) is reported as
+  `Degraded`/`smb_credential_unavailable` and never gets an entry.

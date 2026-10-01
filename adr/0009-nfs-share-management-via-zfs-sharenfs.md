@@ -36,3 +36,25 @@ source of share state; no `/etc/exports` writer exists.
 - `sharenfs` semantics vary slightly across ZFS versions; the ZFS userland is
   pinned in the image (ADR-0001) and share semantics are verified in the
   `file-shares` design.
+
+## Generated values always include `insecure` (amendment)
+
+The generated `sharenfs` value is an explicit option list rather than the opaque
+`on`:
+
+- no hosts: `rw=*,crossmnt,no_subtree_check,insecure`
+- hosts: `rw=<h1>:<h2>,crossmnt,no_subtree_check,insecure`
+
+The list preserves the `sharenfs=on` defaults (`crossmnt`, `no_subtree_check`)
+and adds `insecure`, which waives mountd's privileged-source-port requirement. A
+client whose NFS requests originate from an unprivileged source port can
+therefore mount the export. This matters for the `qemu`/slirp dev harness: slirp
+`hostfwd` cannot preserve a privileged source port, so a `secure` export is
+refused with `MNT3ERR_ACCES` even though the export is live.
+
+**Recorded security trade-off:** the privileged-port requirement no longer
+applies to Amberhold's exports. Host/IP grants remain the access gate — only the
+allow-listed clients may mount — so the waiver does not widen *which* clients may
+access a share. There is deliberately no `secure`/`insecure` per-share toggle in
+v1; a future option can revisit it. This supersedes the original decision's
+implicit reliance on `sharenfs` defaults.
