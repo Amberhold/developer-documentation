@@ -69,7 +69,7 @@ web-ui/  (repo nas/web-ui, module scoped to the SPA)
 ```
 
 - **Bun is a build-time tool.** It is provisioned in the Linux build environment
-  (the Lima VM and CI) that produces `web-ui/dist`. Neither Bun nor Node ships in
+  (the dev host and CI) that produces `web-ui/dist`. Neither Bun nor Node ships in
   the OS image — only the built static assets are baked.
 - **Pinned.** The Bun version is pinned (`.bun-version`) and `bun.lock` is
   committed, so installs are reproducible and the build-time supply chain is
@@ -124,7 +124,7 @@ browser ──HTTPS──▶ front door (Caddy, :443)          loopback
 - This is an image/config change, not a `core` code change: `core` already
   defaults to `--api-bind 127.0.0.1:8443`; only the image bake set `0.0.0.0:8443`
   before. The CLI (origin-only `--server https://nas`) is unaffected. The only
-  direct-`:8443` consumer is the macOS harness, whose slirp `hostfwd` retargets
+  direct-`:8443` consumer is the Linux/amd64 dev harness, whose slirp `hostfwd` retargets
   from guest `8443` to the front-door guest port (`443`).
 - **Why one terminator:** one certificate, one externally reachable origin, one
   place where fail-closed HTTPS is enforced (ADR-0028, ADR-0033). Two listeners

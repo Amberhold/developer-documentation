@@ -5,7 +5,8 @@
 > build for arm64 and amd64), **installed** (live-ISO console TUI), and
 > **updated** (rauc A/B bundles through a per-arch repo channel), and how the
 > install-time decisions reach the spec store (seed-manifest handoff), plus the
-> macOS qemu/HVF dev harness that exercises the boot chain locally. ADR-0001
+> single-machine Linux/amd64 qemu/KVM dev harness that exercises the boot chain
+> locally. ADR-0001
 > fixes the squashfs A/B root, ADR-0011
 > the OS-disk layout + encryption + unlock factors, ADR-0006 updates as a product
 > feature, and ADR-0013 the writable state; this document fixes the *internal
@@ -56,8 +57,9 @@ slices.
 - The resolved threads D13–D22 recorded: UnlockPolicy, repoUrl,
   deferReboot/autoApply, store snapshot, seed ordering, Argon2id params,
   hostname/DNS/NTP, Pool+Dataset seed, ISO trust anchor, automatic rollback.
-- arm64 image support (D24), the per-arch repo channel layout (D25), the macOS
-  qemu/HVF dev harness (D26), and the installer-only live ISO carrying the trust
+- arm64 image support (D24), the per-arch repo channel layout (D25), the
+  Linux/amd64 qemu/KVM dev harness (D26; retargeted to Linux/amd64 by the
+  `linux-amd64-dev-harness` change), and the installer-only live ISO carrying the trust
   anchor + initial bundle (D27) recorded as the additive dev-harness capability.
 
 **Non-Goals:**
@@ -72,10 +74,10 @@ slices.
 - The Web-UI and the image-baked web-ui static serve path — the web-ui repo
   remains a stub; this change bakes whatever static exists.
 - Removing the Linux CI boot matrix: amd64 remains the canonical product gate;
-  the local arm64 harness is additive, not a replacement.
+  the local harness is additive, not a replacement.
 - Supporting any architecture beyond arm64 and amd64.
-- Running the macOS harness under x86_64 emulation (TCG) — the value is the
-  native arm64 loop; x86_64 macOS is out of scope.
+- A local arm64 boot backend: the dev harness is amd64/KVM only; arm64 remains
+  a CI cross-build (`qemu-user`/binfmt, D24).
 
 ## 3. Decisions
 
@@ -325,17 +327,19 @@ defense because rauc's `compatible` stays `amberhold` for both archs and would
 otherwise only fail at the next boot. This is a repo-format contract only; the
 `Updates` OpenAPI schema is unchanged.
 
-### D26: macOS qemu/HVF dev harness replaces the Linux-only qemu-matrix for local iteration
-A Lima arm64 VM hosts the Linux-only build stage (mkosi, rauc bundle, repo
-publish); the macOS host boots the built image natively under
-`qemu-system-aarch64 -accel hvf` with edk2-aarch64 firmware, so systemd-boot
-slot selection, LUKS unlock, and core startup are exercisable on a dev Mac
-without Linux CI. The Lima VM mounts a host directory; mkosi output and the
-published repo write there, the host serves the repo over HTTPS (core rejects a
-non-HTTPS `repoUrl`, D14), and the qemu guest fetches it at the slirp gateway
-`10.0.2.2`. The installer live ISO is built as a dedicated installer-only mkosi
-preset (D27); the e2e currently drives that ISO headless (`amberhold.headless=1`)
-as an interim, with driving the real console TUI over the qemu serial console
+### D26: Single-machine Linux/amd64 qemu/KVM dev harness replaces the Linux-only qemu-matrix for local iteration
+One Debian 13 (trixie) amd64 host runs the whole loop: mkosi builds the amd64
+image natively (no separate build VM) and `qemu-system-x86_64 -accel kvm
+-machine q35 -cpu host` boots it under OVMF (x86_64 UEFI) firmware, so
+systemd-boot slot selection, LUKS unlock, and core startup are exercisable on
+the dev host without Linux CI. The harness serves the published repo over HTTPS
+(core rejects a non-HTTPS `repoUrl`, D14); the guest fetches it at the slirp
+gateway `10.0.2.2`. The harness backend is a small arch/machine profile
+(`AMBERHOLD_ARCH`, default `amd64`) supplying the qemu binary, machine, accel,
+CPU, firmware, and console, so a future arch can reuse the scenarios. The
+installer live ISO is built as a dedicated installer-only mkosi preset (D27);
+the e2e currently drives that ISO headless (`amberhold.headless=1`) as an
+interim, with driving the real console TUI over the qemu serial console
 required by the follow-up task.
 
 ### D27: Installer-only live ISO carries the trust anchor and the initial bundle
@@ -486,27 +490,31 @@ container with an enrolled factor, reports rauc boot-status, and mounts the
 active slot. A mark-good service records a successful boot; repeated failure
 boot-counts and falls back to the prior slot automatically (D22).
 
-## 4a. macOS dev harness and per-arch repo
+## 4a. Linux/amd64 dev harness and per-arch repo
 
-The arm64 image and the boot chain are exercised locally on a macOS development
-host (D24–D26). The division of labor across the two Linux environments is:
+The amd64 image and the boot chain are exercised locally on a single Debian 13
+(trixie) amd64 host with nested virtualization (D24–D26). mkosi builds the image
+on the same machine that boots it:
 
 ```
-   macOS host                                    Lima arm64 VM (Linux)
-   ─────────────────────────                    ─────────────────────────
-   qemu-system-aarch64 -accel hvf               mkosi build (arm64 .raw)
-   edk2-aarch64 firmware                        rauc bundle + publish
-   harness driver (scenarios, disks,            -> repo served to qemu guest
-     injects, asserts)                           (per-arch segment)
+   Debian 13 amd64 host (nested KVM)
+   ─────────────────────────────────────────────
+   mkosi build (amd64 .raw)  →  rauc bundle + publish
+   qemu-system-x86_64 -accel kvm -machine q35 + OVMF
+   harness driver (scenarios, disks, injects, asserts)
+   host HTTPS repo server  →  qemu guest at slirp 10.0.2.2
 ```
 
-The harness boots what Lima builds; Lima publishes what qemu consumes — no CI in
-the loop. The Lima VM mounts a host directory (virtiofs/9p); mkosi's output and
-`publish-bundle.sh` write into it so the image/ISO/repo are host-visible without
-a copy-out. The host serves the repo over HTTPS with a locally-generated
+There is no separate build VM and no CI in the loop: the harness boots what the
+host builds. The host serves the repo over HTTPS with a locally-generated
 CA/cert (the CA is baked into the image so the Update controller trusts it) and
 the qemu guest reaches it at the slirp gateway `10.0.2.2`. The core-vs-real-host
-"fake repo" (D25) is this same host HTTPS server over the shared dir.
+"fake repo" (D25) is this same host HTTPS server over the shared dir. The
+harness backend is a small arch/machine profile (`AMBERHOLD_ARCH`, default
+`amd64`) supplying the qemu binary, `-machine`, `-accel`, `-cpu`, firmware
+(code + writable vars template), and kernel console; scripts stay arch-neutral.
+The harness asserts `/dev/kvm` is usable before booting (no TCG fallback) and
+reports the missing hardware-virtualization access otherwise (D3).
 
 The Update controller resolves `<repoUrl>/<channel>/<arch>/latest.json` for its
 host arch and verifies the repo-declared bundle `arch` before staging (D25). The
@@ -554,20 +562,21 @@ the qemu data disks are attached with stable serials so
 by-id alias, which is exactly the identity instability D2 fixes). The manual
 companion check is `zfs get mountpoint tank` → `/mnt/tank` inside the guest.
 
-The harness boots edk2 with a **writable vars pflash** (`amberhold-vars.fd`,
-initialized from the firmware) shared across the install and target boots: on a
-UEFI install rauc's EFI backend writes the per-slot `BootOrder`/`Boot####` NVRAM
-entries at install time and reads them back for `rauc status mark-good` and slot
-activation (D22). With only the read-only code pflash the NVRAM is volatile and
-`rauc status mark-good` fails with "Did not find primary boot entry" — the
-boot-count fallback (7.x) is only exercisable when the NVRAM persists.
+The harness boots OVMF with a **writable vars pflash** (`amberhold-vars.fd`,
+copied from the `OVMF_VARS_4M.fd` template) shared across the install and target
+boots: on a UEFI install rauc's EFI backend writes the per-slot
+`BootOrder`/`Boot####` NVRAM entries at install time and reads them back for
+`rauc status mark-good` and slot activation (D22). With only the read-only code
+pflash the NVRAM is volatile and `rauc status mark-good` fails with "Did not
+find primary boot entry" — the boot-count fallback (7.x) is only exercisable
+when the NVRAM persists.
 
 The interim headless install boots the live image with qemu `-kernel`/`-initrd`
 (and `root=/dev/vda2`, which avoids an initrd by-partuuid race), which bypasses
 UEFI and leaves the guest without efivars. The installer detects the missing
 UEFI runtime and skips only the `efibootmgr` A/B entry creation, still writing
 the systemd-boot files + per-slot bootspec entries to the ESP; the installed
-target then boots under edk2 via systemd-boot's removable path, so slot
+target then boots under OVMF via systemd-boot's removable path, so slot
 selection and the boot chain are still exercised. A real UEFI install has
 efivars and still fails hard if entry creation fails, so a production system is
 never left unable to switch slots.
@@ -576,19 +585,19 @@ Before it boots the installed target, the harness **verifies the installed
 boot files** (D26, D3): `wait_install` waits for the `installer ok` marker, gives
 the guest a bounded flush window, then calls
 `verify_installed_boot_files <image> <bootname...>`. That helper is
-self-contained on the host — no Lima and no loop mounts — parsing the image's
+self-contained on the host — no loop mounts — parsing the image's
 GPT to locate the EFI System Partition and then the ESP's FAT32 directory
 entries (including long-file-name entries, since `amberhold` exceeds 8.3) to
 assert each `/amberhold/<bootname>/{vmlinuz,initrd}` has a non-zero size. A
 missing or zero-size boot file fails the install with a diagnostic naming the
-file, so a truncated install surfaces immediately instead of looping on the
-edk2 firmware assert. The harness's qemu drives also use `cache=writethrough`
+file, so a truncated install surfaces immediately instead of looping on a
+firmware assert. The harness's qemu drives also use `cache=writethrough`
 (and the installer's own sync+unmount teardown above), so a guest killed with
 `SIGTERM` right after `installer ok` cannot drop the last ESP writes.
 
 In addition to the management front door (`:443`) and the update repo, `boot_vm`
 forwards the guest's data-plane share listeners to the host so an operator can
-mount the guest's SMB/NFS shares from the dev Mac for interactive testing
+mount the guest's SMB/NFS shares from the development host for interactive testing
 (`add-nfs-server-and-share-ports`): SMB `:445`/`:139` and NFS `:2049`, plus
 rpcbind `:111`, mountd `:20048`, and statd `:32765` (tcp and udp). Host ports
 default to unprivileged values (`1445`/`1139`/`12049`/`1111`/`12048`/`13265`) so
@@ -657,11 +666,15 @@ the store's serialized path and never build providers themselves.
   controller snapshots the store before trigger and restores it on rollback
   (D16).
 - **The qemu-matrix never exercised systemd-boot under UEFI** → the harness
-  boots the edk2-aarch64 pflash firmware, the first real test of slot selection;
+  boots the OVMF pflash firmware, the first real test of slot selection;
   expect firmware/bootloader iteration (D26).
-- **Nested virtualization is unavailable in Lima** → the harness boots qemu on
-  the macOS host (HVF), not inside Lima; Lima is only the build/rauc stage
-  (D26).
+- **The dev host must expose nested KVM** → the provisioning script checks
+  `/dev/kvm` and group membership, the harness fails loudly rather than
+  degrading to TCG, and real amd64 hardware works identically (D26/D3).
+- **Heavy local build (mkosi + ZFS DKMS)** → the amd64-only build avoids the
+  emulated cross-arch `zfs-dkms` compile; see
+  `docs/development/dev-environment.md` for resources and the provisioning
+  script (D26).
 - **arm64 parity in CI** → adds a second image arch to build and verify; the
   amd64 gate is unchanged and authoritative (D24).
 - **A mispublished wrong-arch bundle** → the repo `arch` field is verified

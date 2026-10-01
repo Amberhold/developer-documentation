@@ -27,7 +27,7 @@ cannot mount '/testy': failed to create mountpoint: Read-only file system
 `zpool create` reports this as a **failure of the whole command** even though
 the pool itself was created, so `core` surfaces
 `Error`/`pool_create_failed` and the pool is left half-provisioned. This was
-observed on the macOS qemu dev harness when creating a pool from the discovered
+observed on the qemu dev harness when creating a pool from the discovered
 unseeded disks.
 
 A second, independent defect compounds it: `zpool status -j` reports a leaf

@@ -172,7 +172,7 @@ that is not a well-formed NT hash is normalized to "no credential", so a
 corrupted entry is never passed to `pdbedit` and never leaves the share
 reporting converged over an entry that was never written.
 The unit surface (argument sequence, typed `ExitError`) is covered over the fake
-runner, and the shipped invocation is verified on the macOS harness guest.
+runner, and the shipped invocation is verified on the dev-harness guest.
 
 ## 6. D-FS4: NFS grants live in the existing `options` bag — no contract delta
 

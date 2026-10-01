@@ -67,7 +67,7 @@ point; the current-principal capability endpoint (`GET /v1/sessions/current`,
   status reports degraded with a reason until a valid certificate converges.
 - This is an image/config change, not a `core` code change: `core` already
   defaults to `--api-bind 127.0.0.1:8443`; only the image bake had set
-  `0.0.0.0:8443`. The only direct-`:8443` consumer today is the macOS dev
+  `0.0.0.0:8443`. The only direct-`:8443` consumer today is the Linux/amd64 dev
   harness, whose slirp `hostfwd` retargets from guest `8443` to the front-door
   guest port in the same change.
 - Certificate rotation takes effect without restarting `core` or the front door

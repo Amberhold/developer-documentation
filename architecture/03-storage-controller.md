@@ -29,7 +29,7 @@ engine (ADR-0022). Shares, apps, and backup build on it in later changes.
 
 **Goals:**
 - A narrow, testable host-state facade (`ZFSHost`) so the storage controllers
-  run and unit-test on any machine (macOS dev, no ZFS) — D-S1.
+  run and unit-test on any machine (the dev host, no ZFS) — D-S1.
 - `Disk` discovery + SMART reconciled against a small desired set: the
   controller creates a resource per discovered disk, with the dedicated OS disk
   excluded (ADR-0011) — D-S2.
@@ -107,7 +107,7 @@ SnapshotHold  SnapshotRelease  SnapshotHolds
   (D-S8) before any command is built.
 - **Alternatives considered** (from `design.md`): faking at the shell-out
   boundary (couples tests to CLI parsing), and `go-zfs` directly with no facade
-  (not testable on macOS, couples the slice to a library rather than an owned
+  (not testable on the dev host, couples the slice to a library rather than an owned
   contract). Both rejected. The production implementation is a **thin
   shell-out wrapper** — no new Go dependency — settling the change's open
   question in favor of the wrapper over `go-zfs`.
@@ -528,9 +528,9 @@ name-immutability, invalid cadence) and failed creates.
 - **Host facade becomes a leaky abstraction** → keep the interface minimal and
   driven by controller needs; let the fake grow with it; revisit only when a
   controller genuinely needs a new primitive.
-- **macOS has no ZFS, so production paths are untested on dev** → the facade
-  is exercised through the fake in unit tests; a later infra/CI step (a Linux
-  runner with a real pool) is the integration test surface.
+- **The dev host has no host-native ZFS, so production paths are untested on dev** → the facade
+  is exercised through the fake in unit tests; the qemu harness (real ZFS in the
+  guest) and CI (a Linux runner with a real pool) are the integration surfaces.
 - **Disk discovery depends on host udev/by-id naming** → production discovery
   targets stable `by-id` device paths; a missing/inconsistent identity is a
   `Degraded` disk, not a crash.
