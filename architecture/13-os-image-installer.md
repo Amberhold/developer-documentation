@@ -581,6 +581,17 @@ selection and the boot chain are still exercised. A real UEFI install has
 efivars and still fails hard if entry creation fails, so a production system is
 never left unable to switch slots.
 
+The installed system boots an initramfs-tools initrd: the unlock hook
+(`os-image/initramfs-tools/amberhold-unlock.hook`) opens the LUKS container with
+the ESP-staged keyfile and exposes the inner A/B + spec/config mapper devices,
+and a companion hook (`amberhold-binaries.hook`) pulls `cryptsetup`, `kpartx`,
+`mdadm`, `blkid`, and the `fat`/`vfat`/`nls`/`squashfs` modules into the initrd
+so it can mount the ESP and the squashfs root. The installer writes a
+`loader.conf` default for the installed slot and appends `console=ttyS0`
+(amd64) to the boot entries, so systemd-boot auto-boots the installed target and
+the harness captures its serial log. On a fresh install only the installed slot
+(B) is bootable; the other slot becomes bootable once an update stages into it.
+
 Before it boots the installed target, the harness **verifies the installed
 boot files** (D26, D3): `wait_install` waits for the `installer ok` marker, gives
 the guest a bounded flush window, then calls
